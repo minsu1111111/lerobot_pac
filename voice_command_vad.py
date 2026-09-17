@@ -42,6 +42,8 @@ command.json을 읽어서 처리하면 된다.
     * pip 기본 torch는 CPU 전용이다. GPU로 돌리려면 https://pytorch.org 에서 CUDA 빌드를 설치.
     * 설정 > 개인 정보 및 보안 > 마이크 > "데스크톱 앱이 마이크에 액세스하도록 허용"이 꺼져
       있으면 에러 없이 무음만 들어온다 (타임아웃 시 안내가 뜬다).
+    * 노트북 내장 마이크 배열은 잡음 제거가 작은 소리를 0으로 지워서 말하는 도중에 녹음이
+      끊길 수 있다. 설정 > 시스템 > 소리 > (입력 장치) > "오디오 향상"을 끄거나 외장/USB 마이크를 쓴다.
     * 같은 마이크가 MME / DirectSound / WASAPI 로 여러 번 보인다. 어느 것을 골라도
       16kHz로 변환해서 쓰지만, 보통은 기본값(MME)이면 충분하다.
     * Whisper 모델 캐시: %USERPROFILE%\.cache\whisper
@@ -60,7 +62,7 @@ command.json을 읽어서 처리하면 된다.
     python voice_command_vad.py                   # Ctrl+C 전까지 반복 인식
     python voice_command_vad.py --once            # 한 번만 인식하고 종료
     python voice_command_vad.py --model base      # 모델 크기 변경 (기본 small)
-    python voice_command_vad.py --silence-ms 1200 --vad-aggressiveness 3
+    python voice_command_vad.py --silence-ms 1500 --vad-aggressiveness 3
     python voice_command_vad.py --list-devices    # 마이크 목록 확인
     python voice_command_vad.py --mic 3           # 특정 입력 장치 사용 (번호 또는 이름 일부)
 
@@ -339,11 +341,14 @@ def import_webrtcvad():
 
 
 def record_utterance(frames: Iterable[bytes], vad, frame_ms: int, silence_ms: int,
-                     timeout_s: float, max_record_s: float) -> bytes | None:
+                     timeout_s: float, max_record_s: float, continue_vad=None) -> bytes | None:
     """말소리가 시작되면 녹음하고, silence_ms 동안 무음이면 종료한다.
 
     timeout_s 안에 말소리가 시작되지 않으면 None을 돌려준다.
+    시작 판정은 vad(엄격)로, 녹음 중 말이 이어지는지는 continue_vad(관대)로 본다.
+    엄격한 VAD로 끝까지 판정하면 작게 발음한 말끝을 무음으로 보고 말하는 도중에 끊기 쉽다.
     """
+    continue_vad = continue_vad or vad
     start_frames = max(1, START_WINDOW_MS // frame_ms)
     pre_roll: deque[bytes] = deque(maxlen=max(start_frames, PRE_ROLL_MS // frame_ms))
     window: deque[bool] = deque(maxlen=start_frames)
@@ -358,6 +363,8 @@ def record_utterance(frames: Iterable[bytes], vad, frame_ms: int, silence_ms: in
 
     for i, frame in enumerate(frames):
         is_speech = vad.is_speech(frame, SAMPLE_RATE)
+        # webrtcvad는 내부적으로 배경 소음을 계속 학습하므로 녹음 전에도 매 프레임 넣어준다.
+        still_speaking = continue_vad.is_speech(frame, SAMPLE_RATE)
 
         if not triggered:
             pre_roll.append(frame)
@@ -371,7 +378,7 @@ def record_utterance(frames: Iterable[bytes], vad, frame_ms: int, silence_ms: in
             continue
 
         recorded.append(frame)
-        silence_run = 0 if is_speech else silence_run + 1
+        silence_run = 0 if still_speaking else silence_run + 1
         if silence_run >= silence_frames:
             break
         if len(recorded) >= max_frames:
@@ -447,9 +454,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--model", default="small",
                    help="Whisper 모델 크기 (tiny/base/small/medium/large/turbo)")
     p.add_argument("--once", action="store_true", help="한 번만 인식하고 종료 (기본: Ctrl+C 전까지 반복)")
-    p.add_argument("--silence-ms", type=int, default=800, help="이 시간(ms) 동안 무음이면 녹음 종료")
+    p.add_argument("--silence-ms", type=int, default=1200,
+                   help="이 시간(ms) 동안 무음이면 녹음 종료. 말하다 끊기면 늘리세요")
     p.add_argument("--vad-aggressiveness", type=int, default=2, choices=range(4),
-                   help="VAD 민감도 0(관대)~3(엄격). 시끄러우면 높이세요")
+                   help="VAD 민감도 0(관대)~3(엄격). 녹음 시작 판정에 쓰고, 녹음 중에는 한 단계 관대하게 판정. "
+                        "시끄러우면 높이세요")
     p.add_argument("--timeout", type=float, default=15.0, help="말소리가 없을 때 대기 시간(초)")
     p.add_argument("--frame-ms", type=int, default=30, choices=(10, 20, 30), help="VAD 판정 프레임 길이(ms)")
     p.add_argument("--max-record-s", type=float, default=15.0, help="최대 녹음 길이(초)")
@@ -464,11 +473,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-def listen_once(args: argparse.Namespace, mic: Microphone, vad, model, stt_device: str) -> int:
+def listen_once(args: argparse.Namespace, mic: Microphone, vad, continue_vad, model, stt_device: str) -> int:
     log(f"\n[대기] 말씀하세요... ({args.timeout:g}초 동안 말이 없으면 타임아웃)")
     with closing(mic.frames(args.frame_ms)) as frames:
         pcm = record_utterance(frames, vad, args.frame_ms, args.silence_ms,
-                               args.timeout, args.max_record_s)
+                               args.timeout, args.max_record_s, continue_vad)
     if pcm is None:
         log(f"[타임아웃] {args.timeout:g}초 동안 말소리가 감지되지 않았습니다.")
         if mic.peak == 0:
@@ -509,7 +518,9 @@ def main(argv: list[str] | None = None) -> int:
             print("\n* 같은 마이크가 MME / DirectSound / WASAPI 로 중복 표시됩니다. 입력 채널(in)이 있는 장치 번호를 --mic 로 지정하세요.")
         return EXIT_OK
 
-    vad = import_webrtcvad().Vad(args.vad_aggressiveness)
+    webrtcvad = import_webrtcvad()
+    vad = webrtcvad.Vad(args.vad_aggressiveness)                      # 녹음 시작: 잡음에 안 켜지게 엄격히
+    continue_vad = webrtcvad.Vad(max(0, args.vad_aggressiveness - 1))  # 녹음 유지: 작은 말끝도 놓치지 않게
     try:  # 모델 로딩 전에 마이크 문제부터 빨리 알려준다
         mic = Microphone(sd, args.mic)
     except MicrophoneError as e:
@@ -521,7 +532,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         model, stt_device = load_whisper(args.model, args.stt_device)
         while True:
-            code = listen_once(args, mic, vad, model, stt_device)
+            code = listen_once(args, mic, vad, continue_vad, model, stt_device)
             if args.once:
                 return code
     except KeyboardInterrupt:

@@ -93,6 +93,23 @@ def test_vad_short_pause_stays_in_one_utterance():
     assert out.count(S) == 40
 
 
+def test_vad_continue_vad_keeps_soft_speech():
+    # 2 = 작은 말소리: 엄격한 VAD는 무음, 관대한 VAD는 음성으로 판정
+    class Strict:
+        def is_speech(self, frame, sample_rate):
+            return frame[0] == S
+
+    class Lenient:
+        def is_speech(self, frame, sample_rate):
+            return frame[0] in (S, 2)
+
+    pattern = [N] * 10 + [S] * 20 + [2] * 40 + [S] * 20 + [N] * 60  # 작은 소리 1200ms 구간
+    strict_only = v.record_utterance((bytes([f]) for f in pattern), Strict(), 30, 800, 15, 15)
+    hysteresis = v.record_utterance((bytes([f]) for f in pattern), Strict(), 30, 800, 15, 15, Lenient())
+    assert strict_only.count(S) == 20   # 작은 소리 구간에서 끊김
+    assert hysteresis.count(S) == 40    # 끝까지 녹음
+
+
 def test_vad_ignores_clicks_and_times_out():
     assert run_vad(([N] * 20 + [S]) * 30) is None
 
@@ -214,7 +231,7 @@ def test_microphone_missing_device_raises():
 # --------------------------------------------------------------------------- #
 def test_parse_args():
     a = v.parse_args([])
-    assert (a.model, a.once, a.silence_ms, a.vad_aggressiveness, a.timeout) == ("small", False, 800, 2, 15.0)
+    assert (a.model, a.once, a.silence_ms, a.vad_aggressiveness, a.timeout) == ("small", False, 1200, 2, 15.0)
     a = v.parse_args(["--once", "--model", "base", "--mic", "3"])
     assert a.once and a.model == "base" and a.mic == 3
     for bad in (["--vad-aggressiveness", "4"], ["--frame-ms", "25"], ["--silence-ms", "0"]):

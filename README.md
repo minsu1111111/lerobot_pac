@@ -19,7 +19,7 @@ SO-101 로봇팔 2대로 물건을 분류/조작하는 시스템의 **음성 명
 |---|---|---|---|
 | 1. 마이크 | 음성 | sounddevice로 장치가 지원하는 형식(int16) 그대로 읽음 | 장치 샘플레이트/채널의 PCM |
 | 2. 형식 변환 | 1의 PCM | 스테레오→mono, 48kHz 등→16kHz (장치가 16kHz mono를 직접 주면 생략) | 30ms(480샘플) 프레임 |
-| 3. VAD 녹음 | 프레임 | 최근 300ms 중 60% 이상이 음성이면 녹음 시작, 무음 800ms면 종료, 15초간 말이 없으면 타임아웃 | 발화 구간 PCM (시작 전 0.5초 포함, 끝 무음 0.3초만 유지) |
+| 3. VAD 녹음 | 프레임 | 최근 300ms 중 60% 이상이 음성이면 녹음 시작, 녹음 중에는 한 단계 관대한 VAD로 판정해 무음 1200ms면 종료, 15초간 말이 없으면 타임아웃 | 발화 구간 PCM (시작 전 0.5초 포함, 끝 무음 0.3초만 유지) |
 | 4. STT | PCM | Whisper `language="ko"` | 텍스트 |
 | 5. 색상 추출 | 텍스트 | `COLOR_KEYWORDS`에서 가장 먼저 등장한 색 | `"red"` / `"blue"` / `"green"` / `"yellow"` / `None` |
 | 6. 저장 | 텍스트 + 색상 | 임시파일에 쓴 뒤 교체 | `command.json` |
@@ -46,6 +46,7 @@ pip install -r requirements.txt
 - `requirements.txt`가 Windows에서는 자동으로 `webrtcvad-wheels`를 설치합니다(원본 `webrtcvad`는 C++ 빌드 도구가 필요).
 - pip 기본 torch는 CPU 전용입니다. GPU를 쓰려면 [pytorch.org](https://pytorch.org)에서 CUDA 빌드를 설치하세요.
 - **설정 > 개인 정보 및 보안 > 마이크 > "데스크톱 앱이 마이크에 액세스하도록 허용"** 이 꺼져 있으면 에러 없이 무음만 들어옵니다.
+- 노트북 내장 마이크 배열은 잡음 제거가 작은 소리를 0으로 지워서 말하는 도중에 녹음이 끊길 수 있습니다. **설정 > 시스템 > 소리 > (입력 장치) > "오디오 향상"** 을 끄거나 외장/USB 마이크를 쓰세요.
 
 ### 공통
 
@@ -65,8 +66,8 @@ python voice_command_vad.py                             # 반복 인식, Ctrl+C�
 |---|---|---|
 | `--model` | `small` | Whisper 모델 크기 (`tiny`/`base`/`small`/`medium`/`large`/`turbo`) |
 | `--once` | off | 한 번만 인식하고 종료 |
-| `--silence-ms` | `800` | 이 시간(ms) 동안 무음이면 녹음 종료 |
-| `--vad-aggressiveness` | `2` | VAD 민감도 0(관대) ~ 3(엄격) |
+| `--silence-ms` | `1200` | 이 시간(ms) 동안 무음이면 녹음 종료. 말하다 끊기면 늘리기 |
+| `--vad-aggressiveness` | `2` | VAD 민감도 0(관대) ~ 3(엄격). 녹음 시작에 쓰고, 녹음 중에는 한 단계 관대하게 판정 |
 | `--timeout` | `15` | 말소리가 없을 때 대기 시간(초) |
 | `--frame-ms` | `30` | VAD 판정 프레임 길이 (10/20/30ms) |
 | `--max-record-s` | `15` | 최대 녹음 길이(초). 소음 때문에 녹음이 안 끝나는 경우 대비 |
@@ -103,7 +104,8 @@ python voice_command_vad.py                             # 반복 인식, Ctrl+C�
 | 마이크를 열 수 없음 | `--list-devices`로 입력 장치 번호 확인 후 `--mic 번호` |
 | 매번 타임아웃 + "입력이 완전히 0" 안내 | 음소거, Windows 마이크 권한, Ubuntu `pavucontrol` 입력 장치 |
 | Ubuntu에서 `hw:` 장치가 안 열림 | `--mic pulse` 또는 `--mic default` |
-| 인식 결과가 이상함 | `--save-wav last.wav`로 녹음이 잘리지 않았는지 먼저 확인 |
+| 말하는 도중에 녹음이 끝남 | `--silence-ms 1500`~`2000`으로 늘리기, Windows는 "오디오 향상" 끄기 |
+| 인식 결과가 이상함 | `--save-wav last.wav`로 녹음이 잘리지 않았는지 먼저 확인. 소리가 찌그러지면 입력 볼륨 낮추기 |
 | CPU에서 너무 느림 | `--model base` (한국어 정확도는 낮아짐) |
 
 ## 테스트
