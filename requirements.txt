@@ -1,0 +1,7 @@
+numpy
+scipy
+sounddevice
+openai-whisper
+# webrtcvad: Linux는 소스 빌드(build-essential 필요), Windows는 미리 빌드된 wheel 사용
+webrtcvad; sys_platform != "win32"
+webrtcvad-wheels; sys_platform == "win32"
