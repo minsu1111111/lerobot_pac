@@ -1,0 +1,6 @@
+# 이 폴더만 따로 복사해 쓸 때 생기는 결과물 (기본 출력 폴더 stt/outputs)
+outputs/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/

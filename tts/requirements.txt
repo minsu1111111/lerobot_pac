@@ -1,0 +1,11 @@
+# 재생(tts_player.py): 파이썬 패키지 불필요 (표준 라이브러리만).
+#   시스템 재생 프로그램 하나 이상: aplay (apt: alsa-utils) 또는 paplay (apt: pulseaudio-utils)
+#   둘 다 없으면 자막만 표시하고 계속 동작한다.
+#
+# wav 생성(generate_wavs.py, 인터넷 필요, 문구를 바꿀 때만):
+edge-tts>=6.1
+av>=10.0
+numpy>=1.21
+#
+# 테스트(tests/):
+#   pytest>=7

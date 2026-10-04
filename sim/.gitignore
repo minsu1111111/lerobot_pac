@@ -1,0 +1,6 @@
+# fetch_so101.py 가 이 폴더 단독일 때 받는 공식 SO-101 파일 (Apache-2.0, 약 19MB) — 저장소에 넣지 않음
+third_party/
+# 이 폴더 단독일 때 기본 결과물 위치 (영상·스틸·XML)
+outputs/
+__pycache__/
+.pytest_cache/

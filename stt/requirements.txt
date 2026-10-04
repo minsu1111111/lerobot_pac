@@ -1,0 +1,19 @@
+# stt/ 의존성:  pip install -r requirements.txt
+# torch 는 사용 중인 환경(예: lerobot)의 것을 그대로 쓴다. openai-whisper 는 torch 버전을 고정하지 않으므로
+# torch 가 이미 있으면 건드리지 않는다 (없으면 CPU/GPU 에 맞는 torch 를 먼저 설치할 것).
+# 시험한 버전: openai-whisper 20250625, torch 2.11, numpy 2.2, scipy 1.18, sounddevice 0.5.6, webrtcvad 2.0.10
+
+openai-whisper>=20240930
+numpy
+scipy
+sounddevice>=0.4      # 마이크 입력. Ubuntu/Debian 은 시스템 라이브러리도 필요: sudo apt install libportaudio2
+
+# --mode vad 에서만 사용. Windows 는 미리 빌드된 wheels 패키지 (원본은 Visual C++ Build Tools 필요).
+# Linux 에서 webrtcvad 빌드가 실패하면 webrtcvad-wheels 로 바꿔도 된다 (import 이름은 둘 다 webrtcvad).
+# webrtcvad 가 pkg_resources 를 못 찾으면: pip install "setuptools<81"
+webrtcvad; sys_platform != "win32"
+webrtcvad-wheels; sys_platform == "win32"
+
+# ---- 선택 ----
+# edge-tts            # synth_test_clips.py (합성 테스트 클립) 에서만. 인터넷 + ffmpeg 필요
+# pytest              # 단위 테스트 (없어도 python tests/test_voice_command.py 로 실행 가능)

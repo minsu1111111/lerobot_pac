@@ -1,0 +1,29 @@
+{
+  "joint": "right_wrist_roll.pos",
+  "sign": 1.0,
+  "amp": 131.47252655029297,
+  "tilt_frac": 0.6,
+  "return_frac": 0.3,
+  "tilt_off": 78.88351593017578,
+  "return_off": 39.44175796508789,
+  "hold": 5,
+  "base_frames": 30,
+  "baseline_median": 1.7582417726516724,
+  "state": {
+    "detected": 100,
+    "n": 100,
+    "multi_crossing": 1,
+    "done_t_max": 47.833333333333336,
+    "done_t_median": 27.816666666666666,
+    "end_after_done_median": 10.100000000000003
+  },
+  "action": {
+    "detected": 100,
+    "n": 100,
+    "multi_crossing": 1,
+    "done_t_max": 47.7,
+    "done_t_median": 27.683333333333334,
+    "end_after_done_median": 10.233333333333336
+  },
+  "timeout_suggest_s": 63.0
+}

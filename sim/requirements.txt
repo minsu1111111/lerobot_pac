@@ -1,0 +1,10 @@
+# 양팔 SO-101 MuJoCo 시뮬 (sim/ 단독). Python 3.10+
+mujoco>=3.2          # 3.8.1 에서 확인. MjSpec(attach/frame) 필요
+numpy
+pillow               # 영상 글자 (한글은 Noto CJK / 나눔 폰트가 시스템에 있을 때)
+opencv-python-headless  # inset 크기 조정·영문 글자 대체. 이미 opencv-python 이 있으면 생략
+imageio
+imageio-ffmpeg       # mp4 저장 (libx264)
+pandas               # play_trajectory.py --source dataset (LeRobot parquet 읽기)
+pyarrow              # pandas.read_parquet
+pytest               # tests/

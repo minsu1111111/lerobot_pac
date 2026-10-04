@@ -1,7 +1,8 @@
-numpy
-scipy
-sounddevice
-openai-whisper
-# webrtcvad: Linux는 소스 빌드(build-essential 필요), Windows는 미리 빌드된 wheel 사용
-webrtcvad; sys_platform != "win32"
-webrtcvad-wheels; sys_platform == "win32"
+# 롤아웃·분석용 (lerobot conda env 기준). 모듈별 의존성은 tts/ stt/ sim/ 의 requirements.txt 참고.
+# lerobot 0.6.1 은 팀 포크 소스를 editable 설치: pip install -e ~/lerobot
+lerobot==0.6.1
+pandas
+matplotlib
+imageio-ffmpeg
+-r stt/requirements.txt
+-r sim/requirements.txt

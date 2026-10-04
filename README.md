@@ -1,117 +1,74 @@
-# lerobot_pac — 음성 명령 인식 (UNITA Manipulation)
+# UNITA PAC 2026 — 말하면 따라주는 손
 
-SO-101 로봇팔 2대로 물건을 분류/조작하는 시스템의 **음성 명령 앞단**입니다.
-"빨간색 컵 집어줘"라고 말하면 텍스트로 바꾸고 색상 키워드를 뽑아 `command.json`에 저장합니다.
-이후 단계(색상별로 학습된 LeRobot 정책 체크포인트 선택)는 이 파일을 읽어서 처리합니다.
-이 스크립트는 로봇과 독립적으로 동작합니다.
+> 이 저장소는 [Unita_lerobot](https://github.com/minsu1111111/Unita_lerobot) 의 `pac2026/` 폴더와 같은 내용이다.
+> 문서에 나오는 `pac2026/...` 경로는 이 저장소 최상위로 읽으면 된다.
+> 실행에는 LeRobot 0.6.1 팀 포크(Unita_lerobot)를 editable 설치한 환경이 필요하다 (`pip install -e ~/lerobot`).
 
-- 지원 OS: Ubuntu 20.04 / 22.04, Windows 10 / 11
-- Python 3.10+
-- STT는 GPU가 있으면 GPU, 없으면 CPU로 동작
+PAC 2026 피지컬 AI 챌린지 (분과① 자율주제, UNITA Manipulation · 인천대).
+음성 명령 → 양팔 SO-101(LeRobot `bi_so_follower`)이 ACT 정책으로 왼팔은 컵을 잡고 오른팔은 물통으로 물을 따름
+→ 관절 상태로 완료를 감지해 TTS 로 안내한다.
 
-## 파이프라인
+- 데이터셋: `UNITAmanipulation/bi_so101_pour_water_20260920_194823` (100 에피소드, 30 fps, 카메라 3대, 12차원)
+- 모델: `UNITAmanipulation/act_pour_water_100` (ACT, chunk 100)
+- LeRobot v0.6.1 소스 기준으로 맞춤 (API 는 설치된 소스를 읽고 확인함)
 
-```
-마이크 ──> 16kHz mono 변환 ──> webrtcvad 발화 감지 ──> Whisper(ko) ──> 색상 키워드 ──> command.json
-```
+## 폴더
 
-| 단계 | 입력 | 처리 | 출력 |
-|---|---|---|---|
-| 1. 마이크 | 음성 | sounddevice로 장치가 지원하는 형식(int16) 그대로 읽음 | 장치 샘플레이트/채널의 PCM |
-| 2. 형식 변환 | 1의 PCM | 스테레오→mono, 48kHz 등→16kHz (장치가 16kHz mono를 직접 주면 생략) | 30ms(480샘플) 프레임 |
-| 3. VAD 녹음 | 프레임 | 최근 300ms 중 60% 이상이 음성이면 녹음 시작, 녹음 중에는 한 단계 관대한 VAD로 판정해 무음 1200ms면 종료, 15초간 말이 없으면 타임아웃 | 발화 구간 PCM (시작 전 0.5초 포함, 끝 무음 0.3초만 유지) |
-| 4. STT | PCM | Whisper `language="ko"` | 텍스트 |
-| 5. 색상 추출 | 텍스트 | `COLOR_KEYWORDS`에서 가장 먼저 등장한 색 | `"red"` / `"blue"` / `"green"` / `"yellow"` / `None` |
-| 6. 저장 | 텍스트 + 색상 | 임시파일에 쓴 뒤 교체 | `command.json` |
+`tts/` `stt/` `sim/` 은 **서로 독립**이다. 폴더 하나만 다른 프로젝트에 복사해도 동작하고,
+각자 README · requirements.txt · tests 가 있다. 나머지는 이 셋과 공용 코드를 묶는 쪽이다.
 
-## 설치
-
-### Ubuntu 20.04 / 22.04
-
-```bash
-sudo apt install libportaudio2 build-essential
-pip install -r requirements.txt
-```
-
-- 20.04는 기본 Python이 3.8입니다. LeRobot conda 환경을 쓰거나 deadsnakes PPA로 python3.10(+ `-dev`, `-venv`)을 설치하세요.
-- `webrtcvad` import 시 `No module named pkg_resources`가 나오면 `pip install "setuptools<81"`을 실행하세요.
-- 실행 시 찍히는 ALSA/JACK 경고는 PortAudio 초기화 로그일 뿐이라 무시해도 됩니다.
-
-### Windows 10 / 11
-
-```powershell
-pip install -r requirements.txt
-```
-
-- `requirements.txt`가 Windows에서는 자동으로 `webrtcvad-wheels`를 설치합니다(원본 `webrtcvad`는 C++ 빌드 도구가 필요).
-- pip 기본 torch는 CPU 전용입니다. GPU를 쓰려면 [pytorch.org](https://pytorch.org)에서 CUDA 빌드를 설치하세요.
-- **설정 > 개인 정보 및 보안 > 마이크 > "데스크톱 앱이 마이크에 액세스하도록 허용"** 이 꺼져 있으면 에러 없이 무음만 들어옵니다.
-- 노트북 내장 마이크 배열은 잡음 제거가 작은 소리를 0으로 지워서 말하는 도중에 녹음이 끊길 수 있습니다. **설정 > 시스템 > 소리 > (입력 장치) > "오디오 향상"** 을 끄거나 외장/USB 마이크를 쓰세요.
-
-### 공통
-
-- LeRobot 환경에 같이 설치해도 됩니다(openai-whisper는 torch 버전을 고정하지 않음).
-- ffmpeg는 필요 없습니다(녹음 데이터를 numpy 배열로 Whisper에 직접 전달).
-- Whisper 모델은 첫 실행 시 자동 다운로드됩니다(`small` 약 460MB).
-
-## 사용법
-
-```bash
-python voice_command_vad.py --list-devices              # 마이크 목록 확인
-python voice_command_vad.py --once --save-wav last.wav  # 한 번 인식 ("빨간색 컵 집어줘")
-python voice_command_vad.py                             # 반복 인식, Ctrl+C로 종료
-```
-
-| 옵션 | 기본값 | 설명 |
+| 폴더 | 내용 | 독립 |
 |---|---|---|
-| `--model` | `small` | Whisper 모델 크기 (`tiny`/`base`/`small`/`medium`/`large`/`turbo`) |
-| `--once` | off | 한 번만 인식하고 종료 |
-| `--silence-ms` | `1200` | 이 시간(ms) 동안 무음이면 녹음 종료. 말하다 끊기면 늘리기 |
-| `--vad-aggressiveness` | `2` | VAD 민감도 0(관대) ~ 3(엄격). 녹음 시작에 쓰고, 녹음 중에는 한 단계 관대하게 판정 |
-| `--timeout` | `15` | 말소리가 없을 때 대기 시간(초) |
-| `--frame-ms` | `30` | VAD 판정 프레임 길이 (10/20/30ms) |
-| `--max-record-s` | `15` | 최대 녹음 길이(초). 소음 때문에 녹음이 안 끝나는 경우 대비 |
-| `--mic` | 시스템 기본 | 입력 장치 번호 또는 이름 일부 |
-| `--stt-device` | `auto` | Whisper 실행 장치 (`auto`/`cpu`/`cuda`) |
-| `--output` | `command.json` | 결과 JSON 경로 |
-| `--save-wav` | 없음 | 마지막 녹음을 wav로 저장 (튜닝/디버깅용) |
+| [`tts/`](tts/) | 고정 문구 wav 를 비차단 재생 (제어 루프를 막지 않음, 스피커 없으면 자막만) | ✅ |
+| [`stt/`](stt/) | 말소리 자동 감지(VAD) 또는 Enter 녹음 → Whisper(ko) → `따라줘`/`정지` 명령 매칭, 키보드 대체 입력, 인식률 시험·녹음 도구 | ✅ |
+| [`sim/`](sim/) | 양팔 SO-101 MuJoCo: 궤적 재생 영상, 롤아웃용 가짜 관절 로봇 | ✅ |
+| [`rollout/`](rollout/) | 데모 롤아웃 루프 (`pour_rollout.py`): 감지기 + TTS + STT + 수동 정지, 백엔드 real / replay / replay+mujoco | 묶는 쪽 |
+| [`analysis/`](analysis/) | 관절 분석 → 완료 감지 임계값 (`--install` 로 `rollout/thresholds.json` 갱신) | |
+| [`validate/`](validate/) | 오프라인(open-loop) 모델 검증: 데이터셋 프레임 → 모델 action → 감지기 | |
+| [`train/`](train/) | 데이터 수집(`record.sh`, lerobot-record 양팔), 학습(`train.sh`, 이어서 학습/처음부터), 체크포인트 받아오기·검증 절차 | |
+| [`tools/`](tools/) | `offline_check.py`(인터넷 차단 점검), `camera_check.py`(카메라·초점·수위 확인), `tts_loop_timing.py`, `mux_tts_audio.py`(시뮬 영상에 TTS 소리) | |
+| `pour_detector.py` | 완료 감지기 (오른팔 wrist_roll 히스테리시스 + 타임아웃) | |
+| `paths.py` | 경로 모음 (`UNITA_LOCAL` = 깃에 안 올리는 결과물·외부 파일, 기본 `~/UNITA_PAC2026/local`) | |
+| `run_demo.sh` | 단일 실행기 (오프라인 점검 → 롤아웃) | |
 
-`--once` 종료 코드: `0` 색상 인식 / `3` 색상 키워드 없음 / `2` 타임아웃 / `1` 오류
+저장소 밖 `~/UNITA_PAC2026/local/` (환경변수 `UNITA_LOCAL` 로 변경 가능, 깃 제외): `outputs/`(분석·영상·로그), `third_party/so101`(공식 SO-101 MJCF, `sim/fetch_so101.py`),
+`robot.env`(PC 별 포트·카메라, 예시는 `rollout/robot.env.example`).
 
-## 출력 형식
+대회 전 준비 순서는 [`PREP_CHECKLIST.md`](PREP_CHECKLIST.md) (GPU 확인, 카메라 확인, 녹화·학습 리허설, STT 시험).
 
-```json
-{
-  "text": "빨간색 컵 집어줘",
-  "color": "red",
-  "timestamp": "2026-09-17T14:03:12+09:00"
-}
-```
-
-- 색상을 못 찾으면 `"color": null`이 저장됩니다.
-- 반복 모드에서는 인식할 때마다 덮어씁니다. 다음 단계에서는 `timestamp`가 바뀌면 새 명령으로 보고 `color`를 읽으면 됩니다.
-- 색상 추가/삭제는 스크립트의 `COLOR_KEYWORDS` 딕셔너리만 수정하면 됩니다.
-
-## 주의사항
-
-- **현장이 시끄러우면 VAD가 오작동할 수 있습니다.** 잡음 때문에 녹음이 켜지거나 안 끝나면 `--vad-aggressiveness`를 높이고, 말하는 중간에 끊기면 `--silence-ms`를 늘려서 튜닝하세요.
-- **안정성이 더 중요하면**(시연 등) 자동 감지 대신 Enter 키로 수동 시작/종료하는 방식을 쓰는 게 낫습니다.
-
-## 문제 해결
-
-| 증상 | 확인할 것 |
-|---|---|
-| 마이크를 열 수 없음 | `--list-devices`로 입력 장치 번호 확인 후 `--mic 번호` |
-| 매번 타임아웃 + "입력이 완전히 0" 안내 | 음소거, Windows 마이크 권한, Ubuntu `pavucontrol` 입력 장치 |
-| Ubuntu에서 `hw:` 장치가 안 열림 | `--mic pulse` 또는 `--mic default` |
-| 말하는 도중에 녹음이 끝남 | `--silence-ms 1500`~`2000`으로 늘리기, Windows는 "오디오 향상" 끄기 |
-| 인식 결과가 이상함 | `--save-wav last.wav`로 녹음이 잘리지 않았는지 먼저 확인. 소리가 찌그러지면 입력 볼륨 낮추기 |
-| CPU에서 너무 느림 | `--model base` (한국어 정확도는 낮아짐) |
-
-## 테스트
-
-마이크나 Whisper 없이 로직(색상 추출, JSON 저장, VAD 상태 머신, 리샘플링, 장치 설정 폴백)을 검증합니다.
+## 실행
 
 ```bash
-python tests/test_voice_command_vad.py   # 또는 pytest tests/
+PY=~/miniconda3/envs/lerobot/bin/python      # conda run 대신 env 의 python 직접 사용
+
+bash run_demo.sh --replay                    # 하드웨어 없이: 데이터셋 재생 (open-loop)
+bash run_demo.sh --sim                       # 하드웨어 없이: 데이터셋 영상 + MuJoCo 관절 (근사 closed-loop)
+bash run_demo.sh                             # 실제 로봇 (~/UNITA_PAC2026/local/robot.env 필요)
+
+$PY tools/offline_check.py --block-network   # 현장 전: 인터넷 없이 전부 로드되는지
 ```
+
+조작: 대기 중 "물 따라줘" 라고 말하면 시작 (Enter 불필요, `p`+Enter 도 됨. 시끄러우면 `--stt-mode enter` 로 Enter→말하기→Enter)
+/ 붓는 중 Space·`s` = 즉시 정지, `q` = 종료, Ctrl+C = 안전 종료. 안내 음성이 끝난 뒤에만 듣는다.
+완료 감지 즉시 "다 따랐습니다" 안내, 12초 뒤 정지 후 초기 자세 복귀. 명령을 못 알아들으면 "다시 말씀해 주세요".
+
+시뮬 데모 영상 (TTS 소리 포함):
+
+```bash
+$PY rollout/pour_rollout.py --backend replay+mujoco --episode 25 --fast --auto-start --no-stt --no-tts \
+    --sim-render offscreen --sim-video ~/UNITA_PAC2026/local/outputs/sim/rollout_ep25_sim.mp4
+```
+
+## 주요 결정과 측정값
+
+- **완료 감지 = 관절 상태.** 오른팔 `wrist_roll` 이 기준선 + 78.9° 를 5프레임 넘으면 붓는 중, + 39.4° 안으로 5프레임 들어오면 완료.
+  타임아웃 63 s. 데이터셋 100/100, 모델 출력(open-loop) 100/100 감지. 비전 수위 판정은 하지 않음.
+- **청크 경계 튐:** ACT 가 100스텝마다 새 청크를 낼 때 open-loop 에서 팔 관절이 최대 70°/프레임 튐
+  → `--max-step-deg 10` 기본 (시연 데이터 최대 ≈10°/프레임, 정상 동작에선 몇 프레임만 걸림). MuJoCo closed-loop 에선 7°.
+- **오프라인 현장:** ResNet18 ImageNet 가중치 다운로드를 막으려고 `pretrained_backbone_weights=None` (체크포인트가 덮어써서 출력 동일).
+- **STT:** Whisper small, 말소리 자동 감지(기본, `--vad-level` 로 민감도), 프롬프트 `"물 따라줘. 정지."`. 합성 음성 122개 98.4%, stop 누락 0, 오작동 pour 0 (실제 목소리 시험 전).
+
+## 하드웨어 없이 검증한 범위
+
+데이터셋 재생과 MuJoCo 관절 시뮬까지다. 실제 로봇 백엔드는 lerobot 소스에 맞춰 작성했지만 실행해 보지 못했다.
+첫 실물 시험에서 확인할 것: 완료 감지 임계값(손목 최대 각도), 청크 경계 튐, 정지 키, 현장 소음에서 STT, GPU(torch CUDA) 동작.
