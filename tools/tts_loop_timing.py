@@ -33,9 +33,11 @@ from tts_player import TTSPlayer  # noqa: E402
 try:
     from lerobot.utils.robot_utils import precise_sleep
 except ImportError:  # lerobot 없이도 돌도록 (Linux 에서는 time.sleep 과 동일)
+
     def precise_sleep(seconds: float):
         if seconds > 0:
             time.sleep(seconds)
+
 
 FPS = 30
 JOINT_IDX = 10  # right_wrist_roll.pos (12차원 state 내 위치)
@@ -52,9 +54,14 @@ def load_states(episodes: list[int]) -> dict[int, np.ndarray]:
 def detector_cfg() -> PourDetectorConfig:
     s = json.loads(THRESHOLDS.read_text())
     assert s["joint"] == "right_wrist_roll.pos"
-    return PourDetectorConfig(tilt_off=s["tilt_off"], return_off=s["return_off"], hold=s["hold"],
-                              base_frames=s["base_frames"], sign=s["sign"],
-                              timeout_steps=int(s.get("timeout_suggest_s", 63) * FPS))
+    return PourDetectorConfig(
+        tilt_off=s["tilt_off"],
+        return_off=s["return_off"],
+        hold=s["hold"],
+        base_frames=s["base_frames"],
+        sign=s["sign"],
+        timeout_steps=int(s.get("timeout_suggest_s", 63) * FPS),
+    )
 
 
 def busy(ms: float):
@@ -68,8 +75,10 @@ def stats(p_ms: np.ndarray, period_ms: float) -> str:
     if len(p_ms) == 0:
         return "n=0"
     over = int((p_ms > 1.5 * period_ms).sum())
-    return (f"n={len(p_ms):5d}  mean={p_ms.mean():6.2f}  std={p_ms.std():5.2f}  "
-            f"p99={np.percentile(p_ms, 99):6.2f}  max={p_ms.max():6.2f} ms  overrun(>{1.5 * period_ms:.1f}ms)={over}")
+    return (
+        f"n={len(p_ms):5d}  mean={p_ms.mean():6.2f}  std={p_ms.std():5.2f}  "
+        f"p99={np.percentile(p_ms, 99):6.2f}  max={p_ms.max():6.2f} ms  overrun(>{1.5 * period_ms:.1f}ms)={over}"
+    )
 
 
 def main():
@@ -102,8 +111,10 @@ def main():
                 tts.say(key)
                 says.append(s0)
                 say_cost.append(time.perf_counter() - s0)
-                events.append(f"ep{ep} frame {i:4d} ({i / FPS:5.1f}s) say({key})"
-                              + (f" reason={det.done_reason}" if key == "done" else ""))
+                events.append(
+                    f"ep{ep} frame {i:4d} ({i / FPS:5.1f}s) say({key})"
+                    + (f" reason={det.done_reason}" if key == "done" else "")
+                )
             if args.work_ms:
                 busy(args.work_ms)
             t_next += dt

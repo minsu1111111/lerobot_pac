@@ -85,13 +85,15 @@ python mujoco_bi_so101.py
 ## Python API — 다른 프로젝트에서 가짜 로봇으로 쓰기
 
 ```python
-import sys; sys.path.insert(0, "path/to/sim")
+import sys
+
+sys.path.insert(0, "path/to/sim")
 from mujoco_bi_so101 import MujocoBiSO101, NAMES
 
-sim = MujocoBiSO101(render="none", physics=True)   # "offscreen" + video_path="out.mp4" 이면 영상 저장
-obs = sim.reset(state12)                            # LeRobot 단위 12차원 → 같은 단위 12차원 (float32)
+sim = MujocoBiSO101(render="none", physics=True)  # "offscreen" + video_path="out.mp4" 이면 영상 저장
+obs = sim.reset(state12)  # LeRobot 단위 12차원 → 같은 단위 12차원 (float32)
 for action12 in policy_actions:
-    obs = sim.step(action12)                        # 위치 명령 → 1/fps 초 진행 → 시뮬 관절 상태
+    obs = sim.step(action12)  # 위치 명령 → 1/fps 초 진행 → 시뮬 관절 상태
 sim.close()
 ```
 
@@ -100,17 +102,22 @@ LeRobot `Robot` 처럼 dict 로 감싸는 예:
 ```python
 KEYS = [f"{n}.pos" for n in NAMES]
 
+
 class FakeBiSO101:
     def __init__(self, **kw):
         self.sim = MujocoBiSO101(**kw)
         self.state = None
+
     def connect(self, init_state12):
         self.state = self.sim.reset(init_state12)
-    def get_observation(self):            # 카메라 이미지는 따로 (시뮬 렌더는 정책 입력용이 아님)
+
+    def get_observation(self):  # 카메라 이미지는 따로 (시뮬 렌더는 정책 입력용이 아님)
         return dict(zip(KEYS, map(float, self.state)))
+
     def send_action(self, action: dict):
         self.state = self.sim.step([action[k] for k in KEYS])
         return action
+
     def disconnect(self):
         self.sim.close()
 ```

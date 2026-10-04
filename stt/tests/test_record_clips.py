@@ -10,6 +10,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import recognition_test as rt  # noqa: E402
+
 import record_clips as rc  # noqa: E402
 import voice_command as v  # noqa: E402
 
@@ -47,8 +48,13 @@ def test_names_and_index():
     with tempfile.TemporaryDirectory() as d:
         out = Path(d)
         assert rc.next_index(out, "pour", "minsu", "quiet") == 0
-        for name in ("pour__minsu_quiet_00.wav", "pour__minsu_quiet_04.wav", "pour__minsu_noisy_09.wav",
-                     "stop__minsu_quiet_07.wav", "pour__jiwon_quiet_08.wav"):
+        for name in (
+            "pour__minsu_quiet_00.wav",
+            "pour__minsu_quiet_04.wav",
+            "pour__minsu_noisy_09.wav",
+            "stop__minsu_quiet_07.wav",
+            "pour__jiwon_quiet_08.wav",
+        ):
             (out / name).touch()
         assert rc.next_index(out, "pour", "minsu", "quiet") == 5
 
@@ -75,8 +81,11 @@ def test_session_saves_clips_scoreable_by_recognition_test():
         out = Path(d) / "clips"
         # 한 문장마다: Enter(시작) Enter(끝) Enter(저장)
         saved, _, mic = session("\n\n\n" * 3, plan, out)
-        assert [r["file"] for r in saved] == ["pour__minsu_quiet_00.wav", "stop__minsu_quiet_00.wav",
-                                              "none__minsu_quiet_00.wav"]
+        assert [r["file"] for r in saved] == [
+            "pour__minsu_quiet_00.wav",
+            "stop__minsu_quiet_00.wav",
+            "none__minsu_quiet_00.wav",
+        ]
         assert mic.opened == 3  # 녹음마다 스트림을 새로 연다
         for r in saved:
             f = out / r["file"]
@@ -98,10 +107,13 @@ def test_session_redo_skip_quit():
     plan = [("pour", "물 따라줘"), ("stop", "정지"), ("none", "안녕하세요"), ("stop", "멈춰")]
     with tempfile.TemporaryDirectory() as d:
         out = Path(d)
-        keys = ("\n\nr\n" "\n\n\n"   # 1: 녹음 -> r(다시) -> 녹음 -> 저장
-                "s\n"                # 2: 녹음 전에 건너뜀
-                "\n\ns\n"            # 3: 녹음 후 건너뜀
-                "q\n")               # 4: 종료
+        keys = (
+            "\n\nr\n"
+            "\n\n\n"  # 1: 녹음 -> r(다시) -> 녹음 -> 저장
+            "s\n"  # 2: 녹음 전에 건너뜀
+            "\n\ns\n"  # 3: 녹음 후 건너뜀
+            "q\n"
+        )  # 4: 종료
         saved, _, mic = session(keys, plan, out)
         assert [r["file"] for r in saved] == ["pour__minsu_quiet_00.wav"]
         assert mic.opened == 3
@@ -122,9 +134,13 @@ def test_parse_args():
     assert (a.speaker, a.condition, a.repeat, a.mic) == ("min-su", "noisy", 2, 3)
     assert a.out == v.OUT_DIR / "real_clips" and a.labels == ["pour", "stop", "none"]
     assert rc.parse_args(["--list"]).list
-    for bad in ([], ["--speaker", "a"], ["--speaker", "a", "--condition", "loud"],
-                ["--speaker", "a", "--condition", "quiet", "--labels", "pour,drink"],
-                ["--speaker", "a", "--condition", "quiet", "--repeat", "0"]):
+    for bad in (
+        [],
+        ["--speaker", "a"],
+        ["--speaker", "a", "--condition", "loud"],
+        ["--speaker", "a", "--condition", "quiet", "--labels", "pour,drink"],
+        ["--speaker", "a", "--condition", "quiet", "--repeat", "0"],
+    ):
         try:
             rc.parse_args(bad)
         except SystemExit:

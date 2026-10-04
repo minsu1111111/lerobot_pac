@@ -38,12 +38,18 @@ DEFAULT_WAV_DIR = HERE / "wavs"
 
 try:  # 패키지로 import (from tts.tts_player import ...) 한 경우
     from .phrases import CRITICAL_KEYS, MANIFEST, PHRASES, load_phrases
-except ImportError:  # 폴더를 sys.path 에 넣고 쓰는 경우. 이름이 같은 다른 'phrases' 모듈과 섞이지 않게 파일로 로드
+except (
+    ImportError
+):  # 폴더를 sys.path 에 넣고 쓰는 경우. 이름이 같은 다른 'phrases' 모듈과 섞이지 않게 파일로 로드
     _spec = importlib.util.spec_from_file_location("_tts_phrases", HERE / "phrases.py")
     _ph = importlib.util.module_from_spec(_spec)
     _spec.loader.exec_module(_ph)
     CRITICAL_KEYS, MANIFEST, PHRASES, load_phrases = (
-        _ph.CRITICAL_KEYS, _ph.MANIFEST, _ph.PHRASES, _ph.load_phrases)
+        _ph.CRITICAL_KEYS,
+        _ph.MANIFEST,
+        _ph.PHRASES,
+        _ph.load_phrases,
+    )
 
 
 def output_dir() -> Path:
@@ -51,7 +57,9 @@ def output_dir() -> Path:
     $UNITA_LOCAL/outputs/tts → (../../local 또는 ~/UNITA_PAC2026/local 이 있으면) 그 아래 outputs/tts → tts/outputs."""
     if os.environ.get("UNITA_LOCAL"):
         return Path(os.environ["UNITA_LOCAL"]) / "outputs" / "tts"
-    for local in ([HERE.parents[1] / "local"] if len(HERE.parents) > 1 else []) + [Path.home() / "UNITA_PAC2026" / "local"]:
+    for local in ([HERE.parents[1] / "local"] if len(HERE.parents) > 1 else []) + [
+        Path.home() / "UNITA_PAC2026" / "local"
+    ]:
         if local.is_dir():
             return local / "outputs" / "tts"
     return HERE / "outputs"
@@ -86,8 +94,7 @@ def _name(backend) -> str:
     return backend if isinstance(backend, str) else getattr(backend, "__name__", repr(backend))
 
 
-def resolve_phrases(wav_dir: Path, phrases=None, critical_keys=None
-                    ) -> tuple[dict[str, str], frozenset[str]]:
+def resolve_phrases(wav_dir: Path, phrases=None, critical_keys=None) -> tuple[dict[str, str], frozenset[str]]:
     """phrases: None → wav_dir/phrases.json 이 있으면 그것, 없으면 기본 PHRASES.
     str/Path → 문구 파일(.json/.py). Mapping → 그대로. critical_keys 를 주면 그것이 우선."""
     if phrases is None:
@@ -105,10 +112,16 @@ def resolve_phrases(wav_dir: Path, phrases=None, critical_keys=None
 
 
 class TTSPlayer:
-    def __init__(self, wav_dir: str | Path | None = None, device: str | None = None,
-                 enabled: bool = True, max_pending: int = 3, backends: Iterable = BACKENDS,
-                 phrases: Mapping[str, str] | str | Path | None = None,
-                 critical_keys: Iterable[str] | None = None):
+    def __init__(
+        self,
+        wav_dir: str | Path | None = None,
+        device: str | None = None,
+        enabled: bool = True,
+        max_pending: int = 3,
+        backends: Iterable = BACKENDS,
+        phrases: Mapping[str, str] | str | Path | None = None,
+        critical_keys: Iterable[str] | None = None,
+    ):
         """wav_dir   : <key>.wav 폴더 (기본: 이 폴더의 wavs/)
         device    : aplay -D / paplay --device 값 (None 이면 시스템 기본 장치)
         enabled   : False 면 소리 없이 자막(반환 문자열·print)만
@@ -193,13 +206,16 @@ class TTSPlayer:
             raise FileNotFoundError(
                 f"TTS wav 파일이 없습니다: {missing} (폴더: {wav_dir}). "
                 f"인터넷 되는 곳에서 'python generate_wavs.py' (문구를 바꿨으면 --phrases 파일 --out 폴더) "
-                f"로 만든 뒤 커밋하세요.")
+                f"로 만든 뒤 커밋하세요."
+            )
         clips = {}
         for k, text in phrases.items():
             with wave.open(str(wav_dir / f"{k}.wav"), "rb") as w:
                 if w.getsampwidth() != 2 or w.getnchannels() != 1:
-                    raise ValueError(f"{k}.wav 는 16-bit 모노여야 합니다 "
-                                     f"(현재 {8 * w.getsampwidth()}-bit, {w.getnchannels()}ch)")
+                    raise ValueError(
+                        f"{k}.wav 는 16-bit 모노여야 합니다 "
+                        f"(현재 {8 * w.getsampwidth()}-bit, {w.getnchannels()}ch)"
+                    )
                 clips[k] = Clip(k, text, w.readframes(w.getnframes()), w.getframerate())
         return clips
 
@@ -227,8 +243,7 @@ class TTSPlayer:
                 return
             if self._stop:
                 return
-            print(f"[TTS] {_name(b)} 재생 실패 (rc={rc}): {err.splitlines()[-1] if err else ''}",
-                  flush=True)
+            print(f"[TTS] {_name(b)} 재생 실패 (rc={rc}): {err.splitlines()[-1] if err else ''}", flush=True)
             self.backends.pop(0)
         self._mute("모든 백엔드 실패 (오디오 장치 없음?)")
 
@@ -236,8 +251,11 @@ class TTSPlayer:
         err = ""
         try:
             p = self._proc = subprocess.Popen(
-                _cmd(b, clip.sr, self.device), stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                _cmd(b, clip.sr, self.device),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
             try:
                 p.stdin.write(clip.pcm)
                 p.stdin.close()
@@ -285,8 +303,13 @@ def main(argv=None):
     probe = TTSPlayer(wav_dir=args.wav_dir, phrases=args.phrases, enabled=False)
     probe.close()
     keys = args.keys or list(probe.phrases)
-    with TTSPlayer(wav_dir=args.wav_dir, phrases=args.phrases, device=args.device,
-                   enabled=not args.no_audio, max_pending=max(len(keys), 1)) as tts:
+    with TTSPlayer(
+        wav_dir=args.wav_dir,
+        phrases=args.phrases,
+        device=args.device,
+        enabled=not args.no_audio,
+        max_pending=max(len(keys), 1),
+    ) as tts:
         print("backends:", [_name(b) for b in tts.backends])
         for k in keys:
             tts.say(k)

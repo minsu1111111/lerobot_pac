@@ -27,9 +27,13 @@ REPO, REF, SUB = "TheRobotStudio/SO-ARM100", "main", "Simulation/SO101/"
 def fetch(dest: Path) -> Path:
     with urllib.request.urlopen(f"https://api.github.com/repos/{REPO}/git/trees/{REF}?recursive=1") as r:
         tree = json.load(r)["tree"]
-    files = [x["path"] for x in tree if x["type"] == "blob" and x["path"].startswith(SUB) and not x["path"].endswith(".part")]
+    files = [
+        x["path"]
+        for x in tree
+        if x["type"] == "blob" and x["path"].startswith(SUB) and not x["path"].endswith(".part")
+    ]
     for p in files:
-        dst = dest / p[len(SUB):]
+        dst = dest / p[len(SUB) :]
         if dst.exists():
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)

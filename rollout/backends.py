@@ -42,7 +42,7 @@ def calib_dir() -> Path:
 
 
 def _features():
-    return {**{k: float for k in JOINT_KEYS}, **CAM_SHAPES}
+    return {**dict.fromkeys(JOINT_KEYS, float), **CAM_SHAPES}
 
 
 # --------------------------------------------------------------------------- #
@@ -79,9 +79,18 @@ class RealRobot:
 
     name = robot_type = "bi_so_follower"
 
-    def __init__(self, robot_id: str, left_port: str, right_port: str, top_cam: str, left_cam: str,
-                 right_cam: str, max_relative_target: float | None = None, keep_torque: bool = False,
-                 fourcc: str | None = None):
+    def __init__(
+        self,
+        robot_id: str,
+        left_port: str,
+        right_port: str,
+        top_cam: str,
+        left_cam: str,
+        right_cam: str,
+        max_relative_target: float | None = None,
+        keep_torque: bool = False,
+        fourcc: str | None = None,
+    ):
         from lerobot.cameras.opencv import OpenCVCameraConfig
         from lerobot.robots.bi_so_follower import BiSOFollower, BiSOFollowerConfig
         from lerobot.robots.so_follower import SOFollowerConfig
@@ -96,8 +105,12 @@ class RealRobot:
         arm = dict(max_relative_target=mrt, disable_torque_on_disconnect=not keep_torque, use_degrees=True)
         cfg = BiSOFollowerConfig(
             id=robot_id,
-            left_arm_config=SOFollowerConfig(port=left_port, cameras={"wrist": cam(left_cam, CAM_SHAPES["left_wrist"])}, **arm),
-            right_arm_config=SOFollowerConfig(port=right_port, cameras={"wrist": cam(right_cam, CAM_SHAPES["right_wrist"])}, **arm),
+            left_arm_config=SOFollowerConfig(
+                port=left_port, cameras={"wrist": cam(left_cam, CAM_SHAPES["left_wrist"])}, **arm
+            ),
+            right_arm_config=SOFollowerConfig(
+                port=right_port, cameras={"wrist": cam(right_cam, CAM_SHAPES["right_wrist"])}, **arm
+            ),
             cameras={"top": cam(top_cam, CAM_SHAPES["top"])},
         )
         missing = [str(p) for p in calib_paths(robot_id) if not p.is_file()]
@@ -105,7 +118,8 @@ class RealRobot:
             raise FileNotFoundError(
                 "캘리브레이션 파일 없음 → connect 때 대화형 캘리브레이션이 시작되므로 중단합니다.\n  "
                 + "\n  ".join(missing)
-                + "\n  해결: --calib-left follower? --calib-right follower? 로 복사 (어느 팔이 follower1/2 인지 확인)")
+                + "\n  해결: --calib-left follower? --calib-right follower? 로 복사 (어느 팔이 follower1/2 인지 확인)"
+            )
         self.robot = BiSOFollower(cfg)
         self.initial_position: dict | None = None
 
@@ -170,8 +184,14 @@ class DatasetReplayRobot:
     BLOCK = 60
     LOOKAHEAD = 300  # 10s 분량 ≈ 420MB
 
-    def __init__(self, episode: int, dataset: Path = DATASET, clock: str = "step", fps: int = 30,
-                 hold_last: bool = False):
+    def __init__(
+        self,
+        episode: int,
+        dataset: Path = DATASET,
+        clock: str = "step",
+        fps: int = 30,
+        hold_last: bool = False,
+    ):
         from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 
         self.meta = LeRobotDatasetMetadata(dataset.name, root=dataset)
@@ -200,12 +220,16 @@ class DatasetReplayRobot:
     def _load_table(self):
         import pandas as pd
 
-        df = pd.read_parquet(self.root / self.meta.get_data_file_path(self.episode),
-                             columns=["episode_index", "frame_index", "observation.state", "action"])
+        df = pd.read_parquet(
+            self.root / self.meta.get_data_file_path(self.episode),
+            columns=["episode_index", "frame_index", "observation.state", "action"],
+        )
         df = df[df.episode_index == self.episode].sort_values("frame_index")
         assert len(df) == self.length
-        return (np.stack(df["observation.state"].values).astype(np.float32),
-                np.stack(df["action"].values).astype(np.float32))
+        return (
+            np.stack(df["observation.state"].values).astype(np.float32),
+            np.stack(df["action"].values).astype(np.float32),
+        )
 
     def _decode(self, gen: int):
         from lerobot.datasets.video_utils import decode_video_frames
@@ -234,7 +258,7 @@ class DatasetReplayRobot:
                 self._cv.notify_all()
 
     observation_features = property(lambda self: _features())
-    action_features = property(lambda self: {k: float for k in JOINT_KEYS})
+    action_features = property(lambda self: dict.fromkeys(JOINT_KEYS, float))
     is_connected = property(lambda self: self._t0 is not None)
 
     def _start_decoder(self):
@@ -242,7 +266,9 @@ class DatasetReplayRobot:
             self._gen += 1
             self._reset_buffer()
             self._cv.notify_all()
-        threading.Thread(target=self._decode, args=(self._gen,), name="replay-decode", daemon=True).start()
+        t = threading.Thread(target=self._decode, args=(self._gen,), name="replay-decode", daemon=True)
+        t.start()
+        self._threads = [x for x in getattr(self, "_threads", []) if x.is_alive()] + [t]
 
     def connect(self):
         self._start_decoder()
@@ -291,6 +317,9 @@ class DatasetReplayRobot:
         with self._cv:
             self._gen += 1
             self._cv.notify_all()
+        # 디코더 스레드가 영상 디코딩(C++) 도중에 인터프리터가 끝나면 abort 가 나므로 끝날 때까지 기다린다
+        for t in getattr(self, "_threads", []):
+            t.join(timeout=10.0)
         self._t0 = None
 
 
@@ -300,8 +329,16 @@ class ReplayMujocoRobot(DatasetReplayRobot):
     hold_last=True (기본): 데이터셋 영상이 끝나도 마지막 카메라 프레임을 계속 주고 시뮬은 모델 명령대로 계속 움직인다
     → DONE 후 post-done 구간(물통 내려놓기)까지 영상에 담긴다. 시뮬 영상 프레임 = reset 1장 + step 당 1장 (변함 없음)."""
 
-    def __init__(self, episode: int, dataset: Path = DATASET, clock: str = "step", fps: int = 30,
-                 render: str = "none", video_path: str | None = None, hold_last: bool = True):
+    def __init__(
+        self,
+        episode: int,
+        dataset: Path = DATASET,
+        clock: str = "step",
+        fps: int = 30,
+        render: str = "none",
+        video_path: str | None = None,
+        hold_last: bool = True,
+    ):
         super().__init__(episode, dataset, clock, fps, hold_last=hold_last)
         sys.path.insert(0, str(GITHUB / "sim"))
         from mujoco_bi_so101 import MujocoBiSO101  # 다른 담당 모듈 (sim/)

@@ -16,7 +16,7 @@
 ## 절차
 
 ```bash
-cd ~/lerobot/pac2026
+cd ~/UNITA_PAC2026/lerobot_pac
 PY=~/miniconda3/envs/lerobot/bin/python
 ```
 

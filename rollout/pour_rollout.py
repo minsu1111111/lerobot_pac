@@ -75,8 +75,15 @@ GRIP = [JOINT_KEYS.index("left_gripper.pos"), JOINT_KEYS.index("right_gripper.po
 ARM = [i for i in range(12) if i not in GRIP]
 TASK = "Pick up the cup with the left arm and pour water from the bottle into it with the right arm"
 # rollout/thresholds.json 이 없을 때의 기본값 = 2026-10 joint_analysis 결과
-DEFAULT_TH = dict(joint="right_wrist_roll.pos", sign=1.0, tilt_off=78.88, return_off=39.44, hold=5,
-                  base_frames=30, timeout_suggest_s=63.0)
+DEFAULT_TH = dict(
+    joint="right_wrist_roll.pos",
+    sign=1.0,
+    tilt_off=78.88,
+    return_off=39.44,
+    hold=5,
+    base_frames=30,
+    timeout_suggest_s=63.0,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -126,7 +133,7 @@ class KeyboardCommander:
             line = input("\n[대기] p+Enter = 붓기 시작 | q+Enter = 종료 > ").strip().lower()
         except EOFError:
             line = "q"
-        cmd = {"p": "pour", "": None, "s": "stop", "q": "quit"}.get(line[:1] if line else "", None)
+        cmd = {"p": "pour", "": None, "s": "stop", "q": "quit"}.get(line[:1] if line else "")
         return SimpleNamespace(text=line, command=cmd, source="keyboard", duration_s=0.0, stt_s=0.0)
 
 
@@ -157,10 +164,17 @@ def resolve_model_path(model: str) -> str:
 
 
 class Policy:
-    def __init__(self, model: str, device: str, n_action_steps: int | None, temporal_ensemble: float | None,
-                 task: str = TASK, keep_backbone_download: bool = False, sync_exact: bool = False):
+    def __init__(
+        self,
+        model: str,
+        device: str,
+        n_action_steps: int | None,
+        temporal_ensemble: float | None,
+        task: str = TASK,
+        keep_backbone_download: bool = False,
+        sync_exact: bool = False,
+    ):
         import torch
-
         from lerobot.configs.policies import PreTrainedConfig
         from lerobot.policies import get_policy_class, make_pre_post_processors
 
@@ -184,7 +198,8 @@ class Policy:
         self.cfg = cfg
         self.policy = get_policy_class(cfg.type).from_pretrained(path, config=cfg).to(device).eval()
         self.pre, self.post = make_pre_post_processors(
-            cfg, pretrained_path=path,
+            cfg,
+            pretrained_path=path,
             preprocessor_overrides={"device_processor": {"device": device}},
             postprocessor_overrides={"device_processor": {"device": "cpu"}},
         )
@@ -192,7 +207,7 @@ class Policy:
         self.task = task
         self.path = path
         # SyncInferenceEngine 은 매 tick 전처리를 돈다. 같은 결과를 더 싸게: ACT 큐 pop 때는 생략
-        self.skip_pre_on_pop = (not sync_exact and cfg.type == "act" and cfg.temporal_ensemble_coeff is None)
+        self.skip_pre_on_pop = not sync_exact and cfg.type == "act" and cfg.temporal_ensemble_coeff is None
 
         from lerobot.utils.feature_utils import hw_to_dataset_features
 
@@ -200,8 +215,10 @@ class Policy:
 
         # lerobot-rollout 과 같은 방식으로 robot 특징 → dataset 특징 (BiSOFollower 와 같은 키·순서)
         feats = _features()
-        self.features = {**hw_to_dataset_features({k: float for k in JOINT_KEYS}, "action"),
-                         **hw_to_dataset_features(feats, "observation")}
+        self.features = {
+            **hw_to_dataset_features(dict.fromkeys(JOINT_KEYS, float), "action"),
+            **hw_to_dataset_features(feats, "observation"),
+        }
         exp = {k for k, v in cfg.input_features.items()}
         got = {k for k in self.features if k.startswith("observation")}
         assert exp <= got, f"정책 입력 {exp} ⊄ 로봇 특징 {got}"
@@ -221,8 +238,11 @@ class Policy:
         from lerobot.policies.utils import make_robot_action, prepare_observation_for_inference
         from lerobot.utils.feature_utils import build_dataset_frame
 
-        amp = (torch.autocast(device_type="cuda") if self.device.type == "cuda" and self.cfg.use_amp
-               else nullcontext())
+        amp = (
+            torch.autocast(device_type="cuda")
+            if self.device.type == "cuda" and self.cfg.use_amp
+            else nullcontext()
+        )
         with torch.inference_mode(), amp:
             if self.skip_pre_on_pop and not self.will_infer():
                 # ACT select_action 은 큐가 차 있으면 batch 를 보지 않고 popleft 만 한다 (modeling_act.py).
@@ -241,7 +261,7 @@ class Policy:
         """첫 추론(CUDA 초기화 등)이 붓기 첫 프레임을 막지 않도록 미리 한 번 돌린다."""
         from backends import CAM_SHAPES
 
-        obs = {k: 0.0 for k in JOINT_KEYS}
+        obs = dict.fromkeys(JOINT_KEYS, 0.0)
         obs.update({c: np.zeros(s, np.uint8) for c, s in CAM_SHAPES.items()})
         ts = []
         for _ in range(n):
@@ -272,8 +292,14 @@ def stats(x):
     x = np.asarray(x, float)
     if len(x) == 0:
         return None
-    return dict(n=int(len(x)), mean=float(x.mean()), p50=float(np.median(x)),
-                p95=float(np.percentile(x, 95)), p99=float(np.percentile(x, 99)), max=float(x.max()))
+    return dict(
+        n=int(len(x)),
+        mean=float(x.mean()),
+        p50=float(np.median(x)),
+        p95=float(np.percentile(x, 95)),
+        p99=float(np.percentile(x, 99)),
+        max=float(x.max()),
+    )
 
 
 def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int):
@@ -366,12 +392,23 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int):
                     robot.set_overlay("\n".join(lines))
 
                 work = t_act - loop_t0
-                row = dict(step=step, t=t, work_ms=work * 1e3, obs_ms=(t_obs - loop_t0) * 1e3,
-                           infer_ms=(t_inf - t_obs) * 1e3, new_chunk=int(new_chunk), det=det.state,
-                           det_cmd=det_cmd.state, roll_obs=float(state[ROLL]), roll_cmd=float(cmd[ROLL]),
-                           roll_sent=float(sent[ROLL]), jump_arm=float(jump[ARM].max()),
-                           jump_roll=float(jump[ROLL]), jump_grip=float(jump[GRIP].max()),
-                           clamped=int(np.any(np.abs(sent - cmd) > 1e-4)))
+                row = dict(
+                    step=step,
+                    t=t,
+                    work_ms=work * 1e3,
+                    obs_ms=(t_obs - loop_t0) * 1e3,
+                    infer_ms=(t_inf - t_obs) * 1e3,
+                    new_chunk=int(new_chunk),
+                    det=det.state,
+                    det_cmd=det_cmd.state,
+                    roll_obs=float(state[ROLL]),
+                    roll_cmd=float(cmd[ROLL]),
+                    roll_sent=float(sent[ROLL]),
+                    jump_arm=float(jump[ARM].max()),
+                    jump_roll=float(jump[ROLL]),
+                    jump_grip=float(jump[GRIP].max()),
+                    clamped=int(np.any(np.abs(sent - cmd) > 1e-4)),
+                )
                 row.update({f"obs_{i}": float(v) for i, v in enumerate(state)})
                 row.update({f"cmd_{i}": float(v) for i, v in enumerate(sent)})
 
@@ -391,8 +428,10 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int):
                 # ---- 상태줄 / 주기 ----
                 if t - last_status >= (0.5 if sys.stdout.isatty() else 5.0):
                     last_status = t
-                    line = (f"[{t:6.1f}s] det={det.state:7s} roll obs {state[ROLL]:7.1f} cmd {cmd[ROLL]:7.1f}  "
-                            f"work {work * 1e3:5.1f}ms infer {(t_inf - t_obs) * 1e3:6.1f}ms  jump {jump[ARM].max():5.1f}")
+                    line = (
+                        f"[{t:6.1f}s] det={det.state:7s} roll obs {state[ROLL]:7.1f} cmd {cmd[ROLL]:7.1f}  "
+                        f"work {work * 1e3:5.1f}ms infer {(t_inf - t_obs) * 1e3:6.1f}ms  jump {jump[ARM].max():5.1f}"
+                    )
                     if done_t is not None:
                         line += f"  정지까지 {args.post_done_s - (t - done_t):4.1f}s"
                     print(line, end="\r" if sys.stdout.isatty() else "\n", flush=True)
@@ -407,8 +446,10 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int):
                         warn_n += 1
                         if t - last_warn > 5.0:
                             last_warn = t
-                            print(f"\n[경고] 루프 지연 {dt * 1e3:.0f}ms > {period * 1e3:.0f}ms "
-                                  f"(추론 {(t_inf - t_obs) * 1e3:.0f}ms, 누적 {warn_n}회)")
+                            print(
+                                f"\n[경고] 루프 지연 {dt * 1e3:.0f}ms > {period * 1e3:.0f}ms "
+                                f"(추론 {(t_inf - t_obs) * 1e3:.0f}ms, 누적 {warn_n}회)"
+                            )
                 row["period_ms"] = (time.perf_counter() - loop_t0) * 1e3
                 rows.append(row)
                 step += 1
@@ -433,19 +474,28 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int):
     jumps_b = [r["jump_arm"] for r in R[1:] if r["new_chunk"]]
     jumps_i = [r["jump_arm"] for r in R[1:] if not r["new_chunk"]]
     summ = dict(
-        run=run_idx, csv=str(csv_path), stop_reason=stop_reason, steps=len(R),
+        run=run_idx,
+        csv=str(csv_path),
+        stop_reason=stop_reason,
+        steps=len(R),
         duration_s=(R[-1]["t"] if R else 0.0),
         wall_s=time.perf_counter() - t_start,
-        done_t=done_t, done_reason=det.done_reason, tilt_t=(det.tilt_step / FPS if det.tilt_step is not None else None),
-        cmd_detector=dict(state=det_cmd.state, done_t=(det_cmd.done_step / FPS if det_cmd.done_step is not None else None),
-                          tilt_t=(det_cmd.tilt_step / FPS if det_cmd.tilt_step is not None else None)),
+        done_t=done_t,
+        done_reason=det.done_reason,
+        tilt_t=(det.tilt_step / FPS if det.tilt_step is not None else None),
+        cmd_detector=dict(
+            state=det_cmd.state,
+            done_t=(det_cmd.done_step / FPS if det_cmd.done_step is not None else None),
+            tilt_t=(det_cmd.tilt_step / FPS if det_cmd.tilt_step is not None else None),
+        ),
         baseline=det.baseline,
         period_ms=stats([r["period_ms"] for r in R if "period_ms" in r]),
         work_ms=stats([r["work_ms"] for r in R]),
         infer_ms_chunk=stats([r["infer_ms"] for r in R if r["new_chunk"]]),
         infer_ms_pop=stats([r["infer_ms"] for r in R if not r["new_chunk"]]),
         overruns=int(sum(r["work_ms"] > period * 1e3 for r in R)),
-        jump_arm_boundary=stats(jumps_b), jump_arm_within=stats(jumps_i),
+        jump_arm_boundary=stats(jumps_b),
+        jump_arm_within=stats(jumps_i),
         jump_arm_all=stats([r["jump_arm"] for r in R[1:]]),
         jump_roll_all=stats([r["jump_roll"] for r in R[1:]]),
         jump_grip_all=stats([r["jump_grip"] for r in R[1:]]),
@@ -458,10 +508,12 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int):
         d = PourDetector(det_cfg).run(robot.state[:, ROLL])
         summ["demo_done_t"] = d.done_step / FPS if d.state == DONE else None
         summ["episode"], summ["episode_len_s"] = robot.episode, robot.length / FPS
-    print(f"[결과] 정지={stop_reason}  DONE={done_t if done_t is None else round(done_t, 2)}s  "
-          f"steps={len(R)}  지연 {summ['overruns']}회  "
-          f"점프(팔, 최대) 경계 {summ['jump_arm_boundary']['max'] if jumps_b else 0:.1f} / 내부 "
-          f"{summ['jump_arm_within']['max'] if jumps_i else 0:.1f}  → {csv_path}")
+    print(
+        f"[결과] 정지={stop_reason}  DONE={done_t if done_t is None else round(done_t, 2)}s  "
+        f"steps={len(R)}  지연 {summ['overruns']}회  "
+        f"점프(팔, 최대) 경계 {summ['jump_arm_boundary']['max'] if jumps_b else 0:.1f} / 내부 "
+        f"{summ['jump_arm_within']['max'] if jumps_i else 0:.1f}  → {csv_path}"
+    )
     return summ, quit_req
 
 
@@ -480,17 +532,28 @@ def make_robot(args):
     if args.backend == "replay":
         return DatasetReplayRobot(args.episode, Path(args.dataset), clock=clock)
     if args.backend == "replay+mujoco":
-        return ReplayMujocoRobot(args.episode, Path(args.dataset), clock=clock, render=args.sim_render,
-                                 video_path=args.sim_video)
+        return ReplayMujocoRobot(
+            args.episode, Path(args.dataset), clock=clock, render=args.sim_render, video_path=args.sim_video
+        )
     if args.calib_left or args.calib_right:
         install_calib(args.robot_id, args.calib_left, args.calib_right)
-    need = dict(left_port=args.left_port, right_port=args.right_port, top_cam=args.top_cam,
-                left_cam=args.left_cam, right_cam=args.right_cam)
+    need = dict(
+        left_port=args.left_port,
+        right_port=args.right_port,
+        top_cam=args.top_cam,
+        left_cam=args.left_cam,
+        right_cam=args.right_cam,
+    )
     missing = [k for k, v in need.items() if not v]
     if missing:
         raise SystemExit(f"real 백엔드 인자 부족: {missing} (run_demo.sh / robot.env 참고)")
-    return RealRobot(args.robot_id, max_relative_target=args.max_relative_target,
-                     keep_torque=args.keep_torque, fourcc=args.fourcc, **need)
+    return RealRobot(
+        args.robot_id,
+        max_relative_target=args.max_relative_target,
+        keep_torque=args.keep_torque,
+        fourcc=args.fourcc,
+        **need,
+    )
 
 
 def parse_args(argv=None):
@@ -502,12 +565,17 @@ def parse_args(argv=None):
     g.add_argument("--episode", type=int, default=0, help="replay 에피소드 번호")
     g.add_argument("--dataset", default=str(DATASET))
     g.add_argument("--replay-clock", choices=["step", "wall"], default="step")
-    g.add_argument("--fast", action="store_true", help="잠 안 자고 최대 속도 (시간 = step/30, replay 전용 측정용)")
+    g.add_argument(
+        "--fast", action="store_true", help="잠 안 자고 최대 속도 (시간 = step/30, replay 전용 측정용)"
+    )
     g.add_argument("--sim-render", choices=["none", "window", "offscreen"], default="none")
     g.add_argument("--sim-video", default=None, help="replay+mujoco 영상 저장 경로 (offscreen)")
     g = ap.add_argument_group("real 로봇")
-    g.add_argument("--robot-id", default=os.environ.get("ROBOT_ID", "bimanual"),
-                   help="BiSOFollower id → 캘리브레이션 {id}_left.json / {id}_right.json")
+    g.add_argument(
+        "--robot-id",
+        default=os.environ.get("ROBOT_ID", "bimanual"),
+        help="BiSOFollower id → 캘리브레이션 {id}_left.json / {id}_right.json",
+    )
     g.add_argument("--left-port", default=os.environ.get("LEFT_PORT"))
     g.add_argument("--right-port", default=os.environ.get("RIGHT_PORT"))
     g.add_argument("--top-cam", default=os.environ.get("TOP_CAM"))
@@ -516,23 +584,43 @@ def parse_args(argv=None):
     g.add_argument("--fourcc", default=os.environ.get("CAM_FOURCC") or None)
     g.add_argument("--calib-left", default=os.environ.get("CALIB_LEFT"), help="예: follower1 (복사 원본)")
     g.add_argument("--calib-right", default=os.environ.get("CALIB_RIGHT"), help="예: follower2")
-    g.add_argument("--max-relative-target", type=float, default=None,
-                   help="lerobot 안전 제한: 현재 위치 대비 목표 최대 차이 (도). 기본 없음(학습 때와 같음)")
-    g.add_argument("--keep-torque", action="store_true", help="종료 때 토크 유지 (기본: lerobot 처럼 토크 끔)")
+    g.add_argument(
+        "--max-relative-target",
+        type=float,
+        default=None,
+        help="lerobot 안전 제한: 현재 위치 대비 목표 최대 차이 (도). 기본 없음(학습 때와 같음)",
+    )
+    g.add_argument(
+        "--keep-torque", action="store_true", help="종료 때 토크 유지 (기본: lerobot 처럼 토크 끔)"
+    )
     g.add_argument("--no-return-home", action="store_true", help="종료 때 초기 자세 복귀 생략")
     g = ap.add_argument_group("정책")
     g.add_argument("--policy", default=MODEL_REPO, help="HF repo id 또는 로컬 폴더")
     g.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     g.add_argument("--n-action-steps", type=int, default=None, help="청크에서 실제 쓰는 개수 (학습값 100)")
-    g.add_argument("--temporal-ensemble", type=float, default=None, metavar="COEF",
-                   help="ACT temporal ensembling (원 논문 0.01). n_action_steps=1, 매 프레임 추론")
-    g.add_argument("--max-step-deg", type=float, default=10.0,
-                   help="몸통 관절 프레임당 명령 변화 제한 (도). 기본 10, 0 이면 끔")
-    g.add_argument("--max-step-gripper", type=float, default=None, help="그리퍼 프레임당 명령 변화 제한 (0~100)")
+    g.add_argument(
+        "--temporal-ensemble",
+        type=float,
+        default=None,
+        metavar="COEF",
+        help="ACT temporal ensembling (원 논문 0.01). n_action_steps=1, 매 프레임 추론",
+    )
+    g.add_argument(
+        "--max-step-deg",
+        type=float,
+        default=10.0,
+        help="몸통 관절 프레임당 명령 변화 제한 (도). 기본 10, 0 이면 끔",
+    )
+    g.add_argument(
+        "--max-step-gripper", type=float, default=None, help="그리퍼 프레임당 명령 변화 제한 (0~100)"
+    )
     g.add_argument("--task", default=TASK)
     g.add_argument("--threads", type=int, default=None, help="torch CPU 스레드 수 (기본: torch 기본값)")
-    g.add_argument("--sync-exact", action="store_true",
-                   help="SyncInferenceEngine 처럼 매 프레임 전처리 (기본: 큐 pop 프레임은 생략, 결과 동일)")
+    g.add_argument(
+        "--sync-exact",
+        action="store_true",
+        help="SyncInferenceEngine 처럼 매 프레임 전처리 (기본: 큐 pop 프레임은 생략, 결과 동일)",
+    )
     g = ap.add_argument_group("데모 흐름")
     g.add_argument("--thresholds", default=str(THRESHOLDS))
     g.add_argument("--post-done-s", type=float, default=12.0)
@@ -540,9 +628,19 @@ def parse_args(argv=None):
     g.add_argument("--no-stt", action="store_true")
     g.add_argument("--no-tts", action="store_true")
     g.add_argument("--stt-model", default="small")
-    g.add_argument("--stt-mode", choices=("vad", "enter"), default="vad",
-                   help="vad = Enter 없이 말소리 자동 감지 (기본), enter = Enter 로 녹음 시작/끝")
-    g.add_argument("--vad-level", type=int, default=2, choices=range(4), help="VAD 민감도 0(관대)~3(엄격). 시끄러우면 높임")
+    g.add_argument(
+        "--stt-mode",
+        choices=("vad", "enter"),
+        default="vad",
+        help="vad = Enter 없이 말소리 자동 감지 (기본), enter = Enter 로 녹음 시작/끝",
+    )
+    g.add_argument(
+        "--vad-level",
+        type=int,
+        default=2,
+        choices=range(4),
+        help="VAD 민감도 0(관대)~3(엄격). 시끄러우면 높임",
+    )
     g.add_argument("--silence-ms", type=int, default=1000, help="vad: 이 시간 무음이면 말 끝으로 봄")
     g.add_argument("--mic", default=None)
     g.add_argument("--auto-start", action="store_true", help="명령 없이 바로 1회 붓고 종료 (시험용)")
@@ -558,8 +656,13 @@ def main(argv=None):
     assert th["joint"].endswith("right_wrist_roll.pos"), th["joint"]
     if args.timeout_s is None:
         args.timeout_s = float(th["timeout_suggest_s"])
-    det_cfg = PourDetectorConfig(tilt_off=th["tilt_off"], return_off=th["return_off"], hold=th["hold"],
-                                 base_frames=th["base_frames"], sign=th["sign"])
+    det_cfg = PourDetectorConfig(
+        tilt_off=th["tilt_off"],
+        return_off=th["return_off"],
+        hold=th["hold"],
+        base_frames=th["base_frames"],
+        sign=th["sign"],
+    )
     if args.fast and args.backend == "real":
         raise SystemExit("--fast 는 replay 전용")
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -571,14 +674,24 @@ def main(argv=None):
 
         torch.set_num_threads(args.threads)
     print(f"[정책] {args.policy} 로딩 (device={args.device}) ...")
-    policy = Policy(args.policy, args.device, args.n_action_steps, args.temporal_ensemble, args.task,
-                    sync_exact=args.sync_exact)
+    policy = Policy(
+        args.policy,
+        args.device,
+        args.n_action_steps,
+        args.temporal_ensemble,
+        args.task,
+        sync_exact=args.sync_exact,
+    )
     cfg = policy.cfg
-    print(f"[정책] chunk={cfg.chunk_size} n_action_steps={cfg.n_action_steps} "
-          f"temporal_ensemble={cfg.temporal_ensemble_coeff} ← {policy.path}")
+    print(
+        f"[정책] chunk={cfg.chunk_size} n_action_steps={cfg.n_action_steps} "
+        f"temporal_ensemble={cfg.temporal_ensemble_coeff} ← {policy.path}"
+    )
     if cfg.n_action_steps >= 100 and cfg.temporal_ensemble_coeff is None and not args.max_step_deg:
-        print("[경고] n_action_steps=100 (학습값): 청크 경계마다 명령이 한 프레임에 크게 튈 수 있음 "
-              "(replay open-loop 측정: 팔 관절 최대 18~70°/프레임, 시연은 ≤10°). --n-action-steps / --temporal-ensemble / --max-step-deg 참고")
+        print(
+            "[경고] n_action_steps=100 (학습값): 청크 경계마다 명령이 한 프레임에 크게 튈 수 있음 "
+            "(replay open-loop 측정: 팔 관절 최대 18~70°/프레임, 시연은 ≤10°). --n-action-steps / --temporal-ensemble / --max-step-deg 참고"
+        )
     wt = policy.warmup()
     print(f"[정책] 워밍업 추론 {', '.join(f'{x * 1e3:.0f}ms' for x in wt)}")
     if cfg.temporal_ensemble_coeff is not None and wt[-1] > 1 / FPS and not args.fast:
@@ -587,10 +700,18 @@ def main(argv=None):
     robot = make_robot(args)
     tts = make_tts(not args.no_tts)
     commander = None if args.auto_start else make_commander(not args.no_stt, args.stt_model, args.mic)
-    session = dict(args=vars(args), thresholds=th, started=stamp, device=args.device,
-                   policy_path=policy.path, n_action_steps=cfg.n_action_steps,
-                   temporal_ensemble=cfg.temporal_ensemble_coeff, warmup_ms=[x * 1e3 for x in wt], runs=[],
-                   idle_events=[])
+    session = dict(
+        args=vars(args),
+        thresholds=th,
+        started=stamp,
+        device=args.device,
+        policy_path=policy.path,
+        n_action_steps=cfg.n_action_steps,
+        temporal_ensemble=cfg.temporal_ensemble_coeff,
+        warmup_ms=[x * 1e3 for x in wt],
+        runs=[],
+        idle_events=[],
+    )
 
     def save():
         (run_dir / "summary.json").write_text(json.dumps(session, indent=2, ensure_ascii=False, default=str))
@@ -600,6 +721,7 @@ def main(argv=None):
         robot.connect()
         run_idx, announce = 0, True
         if args.stt_mode == "vad" and hasattr(commander, "listen_auto"):
+
             def listen():
                 return commander.listen_auto(vad_level=args.vad_level, silence_ms=args.silence_ms)
         else:
@@ -616,8 +738,9 @@ def main(argv=None):
                 tts.wait(timeout=8.0)  # 안내 음성이 마이크에 들어가지 않도록
                 time.sleep(0.3)  # 스피커 잔향
                 r = listen()
-                session["idle_events"].append(dict(t=time.time(), text=r.text, command=r.command,
-                                                   source=r.source, stt_s=r.stt_s))
+                session["idle_events"].append(
+                    dict(t=time.time(), text=r.text, command=r.command, source=r.source, stt_s=r.stt_s)
+                )
                 if r.command == "quit":
                     break
                 if r.command != "pour":
@@ -658,6 +781,7 @@ def main(argv=None):
             try:
                 sys.path.insert(0, str(GITHUB / "tools"))
                 from mux_tts_audio import mux
+
                 mux(Path(args.sim_video), run_dir)
             except Exception as e:
                 print(f"[영상] 소리 입히기 실패 (영상은 그대로 있음): {e}")

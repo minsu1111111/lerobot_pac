@@ -59,18 +59,22 @@ Enter 모드에서는 녹음 대신 키보드로도 명령할 수 있다: `p`+En
 ## Python API
 
 ```python
-from voice_command import VoiceCommander, match_command   # stt/ 를 sys.path 에 넣었을 때
+from voice_command import VoiceCommander, match_command  # stt/ 를 sys.path 에 넣었을 때
 # from stt import VoiceCommander                          # stt/ 의 부모 폴더가 sys.path 에 있을 때
 
 vc = VoiceCommander(model="small", device="cpu")  # Whisper 로딩 + 워밍업은 여기서 한 번
-r = vc.listen()          # Enter 로 녹음 → CommandResult(text, command, source, duration_s, stt_s)
-if r.command == "pour": ...
-elif r.command == "stop": ...
+r = vc.listen()  # Enter 로 녹음 → CommandResult(text, command, source, duration_s, stt_s)
+if r.command == "pour":
+    ...
+elif r.command == "stop":
+    ...
 elif r.command is None:  # 인식 실패 → "다시 말씀해 주세요" 안내 후 다시 listen()
     ...
-vc.poll_keyboard()       # 로봇 동작 중 non-blocking 으로 s+Enter(정지) 확인 → "stop" | None
-r = vc.listen_auto()     # Enter 없이: 말소리가 들리면 자동 녹음 → 인식 (말이 없으면 계속 대기, p/s/q+Enter 도 받음)
-vc.transcribe_file("a.wav")   # 파일 인식 (마이크 불필요)
+vc.poll_keyboard()  # 로봇 동작 중 non-blocking 으로 s+Enter(정지) 확인 → "stop" | None
+r = (
+    vc.listen_auto()
+)  # Enter 없이: 말소리가 들리면 자동 녹음 → 인식 (말이 없으면 계속 대기, p/s/q+Enter 도 받음)
+vc.transcribe_file("a.wav")  # 파일 인식 (마이크 불필요)
 match_command("물 좀 따라 줄래?")  # -> "pour"  (순수 함수, Whisper 불필요)
 ```
 
@@ -87,7 +91,9 @@ match_command("물 좀 따라 줄래?")  # -> "pour"  (순수 함수, Whisper �
 2. `pip install -r stt/requirements.txt` (+ Ubuntu 면 `sudo apt install libportaudio2`).
 3. 코드에서:
    ```python
-   import sys; sys.path.insert(0, "myproj/stt")
+   import sys
+
+   sys.path.insert(0, "myproj/stt")
    from voice_command import VoiceCommander
    ```
    명령어를 바꾸려면 `match_command(text, commands=..., exclude=..., priority=...)` 에 자기 사전을 넘기거나

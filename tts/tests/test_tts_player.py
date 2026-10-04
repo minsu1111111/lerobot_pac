@@ -68,8 +68,9 @@ def test_stereo_wav_rejected(wav_dir):
         TTSPlayer(wav_dir=wav_dir, enabled=False)
 
 
-@pytest.mark.skipif(not all((DEFAULT_WAV_DIR / f"{k}.wav").is_file() for k in PHRASES),
-                    reason="기본 wavs/ 가 없음")
+@pytest.mark.skipif(
+    not all((DEFAULT_WAV_DIR / f"{k}.wav").is_file() for k in PHRASES), reason="기본 wavs/ 가 없음"
+)
 def test_default_wavs_load():
     with TTSPlayer(enabled=False) as t:  # pour_rollout 과 같은 기본 사용법
         assert set(t.clips) == set(PHRASES)
@@ -240,7 +241,8 @@ def test_custom_phrases_mapping(tmp_path):
 def test_manifest_in_wav_dir_is_used(tmp_path):
     write_wav(tmp_path / "hi.wav")
     (tmp_path / "phrases.json").write_text(
-        json.dumps({"phrases": {"hi": "Hi there"}, "critical": ["hi"]}), encoding="utf-8")
+        json.dumps({"phrases": {"hi": "Hi there"}, "critical": ["hi"]}), encoding="utf-8"
+    )
     with TTSPlayer(wav_dir=tmp_path, enabled=False) as t:
         assert t.say("hi") == "Hi there"
         assert t.critical_keys == {"hi"}

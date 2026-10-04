@@ -78,9 +78,12 @@ def _font(size=18):
         _FONT = False
         try:
             from PIL import ImageFont
-            for f in ("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-                      "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-                      "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"):
+
+            for f in (
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+            ):
                 if os.path.exists(f):
                     _FONT = ImageFont.truetype(f, size)
                     break
@@ -93,12 +96,16 @@ def _draw_text(img, text):
     font = _font()
     if font is not None:
         from PIL import Image, ImageDraw
+
         im = Image.fromarray(img)
         dr = ImageDraw.Draw(im)
         for i, line in enumerate(text.split("\n")):
-            dr.text((10, 8 + 24 * i), line, font=font, fill=(255, 255, 255), stroke_width=2, stroke_fill=(0, 0, 0))
+            dr.text(
+                (10, 8 + 24 * i), line, font=font, fill=(255, 255, 255), stroke_width=2, stroke_fill=(0, 0, 0)
+            )
         return np.asarray(im)
     import cv2
+
     img = img.copy()
     for i, line in enumerate(text.split("\n")):
         y = 24 + 22 * i
@@ -111,14 +118,15 @@ def _draw_text(img, text):
 def _paste_inset(img, inset, frac=0.3, margin=8):
     """inset 을 img 폭의 frac 크기로 줄여 오른쪽 위에 흰 테두리와 함께 붙인다."""
     import cv2
+
     h, w = img.shape[:2]
     iw = int(w * frac)
     ih = int(inset.shape[0] * iw / inset.shape[1])
     small = cv2.resize(np.ascontiguousarray(inset), (iw, ih), interpolation=cv2.INTER_AREA)
     out = img.copy()
     x0, y0 = w - iw - margin, margin
-    out[y0 - 2:y0 + ih + 2, x0 - 2:x0 + iw + 2] = 255
-    out[y0:y0 + ih, x0:x0 + iw] = small
+    out[y0 - 2 : y0 + ih + 2, x0 - 2 : x0 + iw + 2] = 255
+    out[y0 : y0 + ih, x0 : x0 + iw] = small
     return out
 
 
@@ -127,10 +135,22 @@ def _pose(d, site_id):
 
 
 class MujocoBiSO101:
-    def __init__(self, render: str = "none", video_path=None, fps: int = 30, physics: bool = True,
-                 spacing: float = 0.45, ghost: bool = False, props: bool = True, camera: str = "front",
-                 width: int = 640, height: int = 480, realtime: bool = True, kp: float | None = KP_DEFAULT,
-                 **scene_kw):
+    def __init__(
+        self,
+        render: str = "none",
+        video_path=None,
+        fps: int = 30,
+        physics: bool = True,
+        spacing: float = 0.45,
+        ghost: bool = False,
+        props: bool = True,
+        camera: str = "front",
+        width: int = 640,
+        height: int = 480,
+        realtime: bool = True,
+        kp: float | None = KP_DEFAULT,
+        **scene_kw,
+    ):
         """render: none | window(mujoco.viewer) | offscreen(Renderer; video_path 주면 mp4).
         physics=False: qpos = 명령 (순수 시각화). kp: 위치 액추에이터 게인 (None = MJCF 998.22).
         scene_kw: bi_so101_scene.build_spec 인자 (yaw_deg, x_offset, contacts, kv, so101=자산 폴더 ...)."""
@@ -156,22 +176,35 @@ class MujocoBiSO101:
         if props:
             for name, (side, p) in PROPS.items():
                 self.props[name] = dict(
-                    mocap=self.m.body(name).mocapid[0], site=self.m.site(f"{side}_gripperframe").id,
-                    grip=GRIP[SIDES.index(side)], half=p["half"], held=None, armed=False,
+                    mocap=self.m.body(name).mocapid[0],
+                    site=self.m.site(f"{side}_gripperframe").id,
+                    grip=GRIP[SIDES.index(side)],
+                    half=p["half"],
+                    held=None,
+                    armed=False,
                 )
 
         # 렌더러
         self.viewer = self.renderer = self.writer = None
         self.camera = camera
         if render == "window":
-            self.viewer = mujoco.viewer.launch_passive(self.m, self.d, show_left_ui=False, show_right_ui=False)
+            self.viewer = mujoco.viewer.launch_passive(
+                self.m, self.d, show_left_ui=False, show_right_ui=False
+            )
         if render == "offscreen" or video_path is not None:
             self.renderer = mujoco.Renderer(self.m, height, width)
         if video_path is not None:
             import imageio.v2 as imageio
+
             Path(video_path).parent.mkdir(parents=True, exist_ok=True)
-            self.writer = imageio.get_writer(str(video_path), fps=fps, codec="libx264", quality=8,
-                                             macro_block_size=16, ffmpeg_log_level="error")
+            self.writer = imageio.get_writer(
+                str(video_path),
+                fps=fps,
+                codec="libx264",
+                quality=8,
+                macro_block_size=16,
+                ffmpeg_log_level="error",
+            )
         self._t_last = None
 
     # ---------- 상태 입출력 ----------
@@ -233,7 +266,7 @@ class MujocoBiSO101:
             return
         d = mujoco.MjData(self.m)
         traj = np.asarray(traj)
-        for name, p in self.props.items():
+        for p in self.props.values():
             armed, pos = False, None
             for x in traj:
                 g = x[p["grip"]]
@@ -307,7 +340,9 @@ class MujocoBiSO101:
         if self.renderer is not None:
             self.renderer.close()
             self.renderer = None
-        if self.viewer is not None:  # 뷰어 스레드가 끝나기 전에 인터프리터가 종료되면 core dump (Wayland/glfw)
+        if (
+            self.viewer is not None
+        ):  # 뷰어 스레드가 끝나기 전에 인터프리터가 종료되면 core dump (Wayland/glfw)
             self.viewer.close()
             t0 = time.perf_counter()
             while self.viewer.is_running() and time.perf_counter() - t0 < 2.0:

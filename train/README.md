@@ -42,7 +42,7 @@ PY=~/miniconda3/envs/lerobot/bin/python
 ```bash
 ssh $DESKTOP                                   # Tailscale SSH 접속 확인
 # 데스크톱에서:
-cd ~/lerobot && git pull                       # 노트북과 같은 팀 포크·커밋 (pac2026/train 포함)
+cd ~/UNITA_PAC2026/lerobot_pac && git pull   # 이 저장소 (학습 PC 에도 clone). LeRobot 팀 포크 ~/lerobot 도 노트북과 같은 커밋으로
 PY=~/miniconda3/envs/lerobot/bin/python
 
 # (1) RTX 5060 = Blackwell sm_120. CUDA 12.8 이상으로 빌드된 torch 여야 한다
@@ -108,18 +108,18 @@ hf download $NEW --repo-type dataset --local-dir ~/datasets/$(basename $NEW)
 ### b. 학습 (데스크톱)
 
 ```bash
-cd ~/lerobot
+cd ~/UNITA_PAC2026/lerobot_pac
 export HF_HUB_OFFLINE=1                        # 현장 인터넷이 불안하면 (모델은 미리 캐시/복사해 둠)
 
 # finetune (기본): act_pour_water_100 에서 시작, 정규화 통계는 새 데이터셋에서 다시 계산됨
 REPO_ID=$NEW DATASET_ROOT=~/datasets/$(basename $NEW) JOB=venue_ft \
 MODE=finetune STEPS=30000 SAVE_FREQ=5000 BATCH=16 NUM_WORKERS=8 \
-bash pac2026/train/train.sh
+bash train/train.sh
 
 # scratch: 원래와 같은 하이퍼파라미터로 처음부터 (ResNet18 캐시 필요)
 REPO_ID=$NEW DATASET_ROOT=~/datasets/$(basename $NEW) JOB=venue_scratch \
 MODE=scratch STEPS=100000 SAVE_FREQ=10000 BATCH=16 NUM_WORKERS=8 \
-bash pac2026/train/train.sh
+bash train/train.sh
 ```
 
 `STEPS=30000` 은 예시다 — 아래 c 의 속도 측정으로 정한다. 출력은 `~/UNITA_PAC2026/local/train/<JOB>/`, 로그는 그 옆 `<JOB>.log`.
@@ -170,11 +170,11 @@ CUDA 면 로그에 `mem_gb`(GPU 메모리 최대치)도 나온다. OOM 이면 `B
 ```bash
 # 데스크톱 상태 (노트북에서)
 ssh $DESKTOP "tail -n 3 ~/UNITA_PAC2026/local/train/venue_ft.log; nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv"
-DESKTOP=$DESKTOP bash pac2026/train/fetch_checkpoint.sh '~/UNITA_PAC2026/local/train/venue_ft' list
+DESKTOP=$DESKTOP bash train/fetch_checkpoint.sh '~/UNITA_PAC2026/local/train/venue_ft' list
 
 # 체크포인트 하나 가져오기 (step 번호 또는 last)
 DESKTOP=$DESKTOP DATASET=~/.cache/huggingface/lerobot/$NEW \
-bash pac2026/train/fetch_checkpoint.sh '~/UNITA_PAC2026/local/train/venue_ft' 10000
+bash train/fetch_checkpoint.sh '~/UNITA_PAC2026/local/train/venue_ft' 10000
 #   → ~/UNITA_PAC2026/local/checkpoints/venue_ft/010000/   (이 폴더가 곧 모델 폴더)
 ```
 
@@ -184,34 +184,34 @@ fetch_checkpoint.sh 가 끝에 아래 검증 명령을 경로를 채워서 출�
 CK=~/UNITA_PAC2026/local/checkpoints/venue_ft/010000
 DS=~/.cache/huggingface/lerobot/$NEW
 # open-loop: 데이터셋 프레임 → 모델 → 완료 감지 (학습 데이터라 파이프라인·감지 확인용)
-$PY pac2026/validate/offline_model.py --dataset $DS --model $CK --episodes 0 10 20 30 40 \
+$PY validate/offline_model.py --dataset $DS --model $CK --episodes 0 10 20 30 40 \
     --out ~/UNITA_PAC2026/local/outputs/offline_model_venue_ft_010000
 # 롤아웃 루프 (replay 백엔드)
-$PY pac2026/rollout/pour_rollout.py --backend replay --dataset $DS --policy $CK \
+$PY rollout/pour_rollout.py --backend replay --dataset $DS --policy $CK \
     --episode 0 --fast --auto-start --no-stt --no-tts
 # 실제 로봇
-bash pac2026/run_demo.sh --policy $CK
+bash run_demo.sh --policy $CK
 ```
 
 `run_demo.sh` 는 `--policy` 를 pour_rollout.py 로 넘기지만, 시작 전 오프라인 점검(`tools/offline_check.py`)에는 넘기지 않아 점검은 기본 모델로 한다.
-새 체크포인트를 점검하려면 따로: `$PY pac2026/tools/offline_check.py --quick --block-network --policy $CK`.
+새 체크포인트를 점검하려면 따로: `$PY tools/offline_check.py --quick --block-network --policy $CK`.
 
 `--model` / `--policy` 는 **`config.json` 이 들어있는 폴더**여야 한다. 데스크톱 경로를 직접 쓸 땐 `checkpoints/<step>/pretrained_model` 까지 붙일 것 (`checkpoints/<step>` 만 주면 실패).
-같은 데이터 기준 원래 모델 결과와 비교: `$PY pac2026/validate/offline_model.py --episodes 0 10 20 30 40` (기본 모델) 의 action MAE·감지율.
+같은 데이터 기준 원래 모델 결과와 비교: `$PY validate/offline_model.py --episodes 0 10 20 30 40` (기본 모델) 의 action MAE·감지율.
 
 ### e. 새 데이터셋으로 완료 감지 임계값
 
 ```bash
-$PY pac2026/analysis/joint_analysis.py --dataset ~/.cache/huggingface/lerobot/$NEW            # 먼저 결과만 보기
-$PY pac2026/analysis/joint_analysis.py --dataset ~/.cache/huggingface/lerobot/$NEW --install  # rollout/thresholds.json 갱신
+$PY analysis/joint_analysis.py --dataset ~/.cache/huggingface/lerobot/$NEW            # 먼저 결과만 보기
+$PY analysis/joint_analysis.py --dataset ~/.cache/huggingface/lerobot/$NEW --install  # rollout/thresholds.json 갱신
 ```
 
-`--install` 은 깃에 올라가는 `pac2026/rollout/thresholds.json` 을 덮어쓴다. 시연하는 노트북에서 실행하고, 위 offline_model 검증은 임계값을 바꾼 뒤 다시 돌려 감지율을 본다.
+`--install` 은 깃에 올라가는 `rollout/thresholds.json` 을 덮어쓴다. 시연하는 노트북에서 실행하고, 위 offline_model 검증은 임계값을 바꾼 뒤 다시 돌려 감지율을 본다.
 
 ### f. 끊긴 학습 이어가기 / STEPS 늘리기
 
 ```bash
-OUT=~/UNITA_PAC2026/local/train/venue_ft RESUME=1 STEPS=50000 bash pac2026/train/train.sh
+OUT=~/UNITA_PAC2026/local/train/venue_ft RESUME=1 STEPS=50000 bash train/train.sh
 # = lerobot-train --config_path=$OUT/checkpoints/last/pretrained_model/train_config.json --resume=true --steps=50000
 ```
 
@@ -229,18 +229,18 @@ DS=UNITAmanipulation/bi_so101_pour_water_20260920_194823
 rsync -a --info=progress2 --exclude .cache/ ~/.cache/huggingface/lerobot/$DS/ $DESKTOP:~/datasets/$(basename $DS)/
 
 # 데스크톱 (tmux 안): 2000 step finetune, 1000 마다 저장
-cd ~/lerobot
+cd ~/UNITA_PAC2026/lerobot_pac
 REPO_ID=$DS DATASET_ROOT=~/datasets/$(basename $DS) JOB=rehearsal_ft \
-MODE=finetune STEPS=2000 SAVE_FREQ=1000 BATCH=16 NUM_WORKERS=8 bash pac2026/train/train.sh
+MODE=finetune STEPS=2000 SAVE_FREQ=1000 BATCH=16 NUM_WORKERS=8 bash train/train.sh
 #   → 속도(c 의 명령), mem_gb, data_s vs updt_s 를 기록해 둔다 = 현장 STEPS 계산 근거
 # scratch 속도도 한 번 (거의 같을 것): MODE=scratch STEPS=300 SAVE_FREQ=300 JOB=rehearsal_scratch ...
-# 재개도 한 번: 위 학습 중 Ctrl+C → OUT=~/UNITA_PAC2026/local/train/rehearsal_ft RESUME=1 STEPS=2000 bash pac2026/train/train.sh
+# 재개도 한 번: 위 학습 중 Ctrl+C → OUT=~/UNITA_PAC2026/local/train/rehearsal_ft RESUME=1 STEPS=2000 bash train/train.sh
 
 # 노트북: 가져와서 검증
-DESKTOP=$DESKTOP bash pac2026/train/fetch_checkpoint.sh '~/UNITA_PAC2026/local/train/rehearsal_ft' last
+DESKTOP=$DESKTOP bash train/fetch_checkpoint.sh '~/UNITA_PAC2026/local/train/rehearsal_ft' last
 CK=~/UNITA_PAC2026/local/checkpoints/rehearsal_ft/002000
-$PY pac2026/validate/offline_model.py --model $CK --episodes 0 10 20 30 40 --out ~/UNITA_PAC2026/local/outputs/offline_model_rehearsal
-$PY pac2026/rollout/pour_rollout.py --backend replay --policy $CK --episode 0 --fast --auto-start --no-stt --no-tts
+$PY validate/offline_model.py --model $CK --episodes 0 10 20 30 40 --out ~/UNITA_PAC2026/local/outputs/offline_model_rehearsal
+$PY rollout/pour_rollout.py --backend replay --policy $CK --episode 0 --fast --auto-start --no-stt --no-tts
 ```
 
 기존 데이터셋 폴더에는 허브에서 받은 흔적(`.cache/huggingface/download/`)이 있다. 이 상태로 `--dataset.root` 없이 쓰면 lerobot 이 "옛 방식 다운로드" 로 보고 허브에서 다시 받으려 한다
@@ -288,9 +288,9 @@ $PY pac2026/rollout/pour_rollout.py --backend replay --policy $CK --episode 0 --
 
 | 시험 | 결과 |
 |---|---|
-| `OUT=…/train_test/ft_tiny MODE=finetune STEPS=4 SAVE_FREQ=2 BATCH=2 NUM_WORKERS=1 DEVICE=cpu LOG_FREQ=1 bash pac2026/train/train.sh` | 시작 loss 0.034 (scratch 는 79) → 사전학습 가중치 로드됨. 4 step 뒤 가중치 최대 변화 4e-5. `checkpoints/000002`, `000004`, `last -> 000004` 생성, 각 592MB. 정규화 통계 = 데이터셋 stats.json |
+| `OUT=…/train_test/ft_tiny MODE=finetune STEPS=4 SAVE_FREQ=2 BATCH=2 NUM_WORKERS=1 DEVICE=cpu LOG_FREQ=1 bash train/train.sh` | 시작 loss 0.034 (scratch 는 79) → 사전학습 가중치 로드됨. 4 step 뒤 가중치 최대 변화 4e-5. `checkpoints/000002`, `000004`, `last -> 000004` 생성, 각 592MB. 정규화 통계 = 데이터셋 stats.json |
 | 같은 OUT 으로 다시 실행 | train.sh 가 거부 (RESUME=1 안내) |
-| `OUT=…/ft_tiny RESUME=1 STEPS=6 bash pac2026/train/train.sh --num_workers=0 --save_freq=6` | "Resuming data order at epoch 0, sample 8" → step 5, 6 → `000006`, `last -> 000006` |
+| `OUT=…/ft_tiny RESUME=1 STEPS=6 bash train/train.sh --num_workers=0 --save_freq=6` | "Resuming data order at epoch 0, sample 8" → step 5, 6 → `000006`, `last -> 000006` |
 | `offline_model.py --model …/000004/pretrained_model --episodes 0` | 감지 1/1, action MAE 1.44, 16초 |
 | `pour_rollout.py --backend replay --policy …/000004/pretrained_model --episode 0 --fast --auto-start --no-stt --no-tts --test-stop-at 3` | 로드·워밍업 360ms, 정지=manual, 90 step |
 | `DESKTOP=local fetch_checkpoint.sh '~/…/ft_tiny' [list\|last\|4]` | `checkpoints/ft_tiny/000006/` (198MB) 로 복사, 그 폴더로 offline_model·pour_rollout 둘 다 정상 |
@@ -303,7 +303,7 @@ CPU 속도 (참고만, 대표값 아님): batch 2 에서 **≈0.4 steps/s** (ste
 ## 데스크톱에서 꼭 확인할 것
 
 1. torch 가 CUDA 12.8+ 빌드이고 `sm_120` 지원 (`torch.cuda.get_arch_list()`), `torch.cuda.is_available()` 가 True. torchcodec 도 그 torch 와 맞는지 (리허설 학습이 돌면 OK)
-2. 팀 포크 `~/lerobot` 가 노트북과 같은 커밋 (`pac2026/train/` 포함), `lerobot-train` 이 `~/miniconda3/envs/lerobot/bin/` 에 있는지 (다르면 `LEROBOT_TRAIN=` 로 지정)
+2. 이 저장소(`~/UNITA_PAC2026/lerobot_pac`)와 팀 포크 `~/lerobot` 가 노트북과 같은 커밋, `lerobot-train` 이 `~/miniconda3/envs/lerobot/bin/` 에 있는지 (다르면 `LEROBOT_TRAIN=` 로 지정)
 3. 데이터셋 경로: `DATASET_ROOT/meta/info.json` 이 있어야 함
 4. 시작 모델이 캐시/로컬 폴더에 있는지 (현장 오프라인 대비), scratch 를 할 거면 ResNet18 캐시
 5. batch 16 이 8GB 에 들어가는지 (`mem_gb`), steps/s, `data_s` vs `updt_s` → `NUM_WORKERS`

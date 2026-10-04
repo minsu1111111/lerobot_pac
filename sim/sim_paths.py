@@ -37,8 +37,10 @@ def so101_dir() -> Path:
     if env:
         p = Path(env).expanduser()
         if not (p / ARM_XML_NAME).is_file():
-            raise FileNotFoundError(f"SO101_DIR={p} 에 {ARM_XML_NAME} 가 없습니다. 경로를 확인하거나 "
-                                    f"'python {SIM_DIR / 'fetch_so101.py'}' 로 받으세요.")
+            raise FileNotFoundError(
+                f"SO101_DIR={p} 에 {ARM_XML_NAME} 가 없습니다. 경로를 확인하거나 "
+                f"'python {SIM_DIR / 'fetch_so101.py'}' 로 받으세요."
+            )
         return p
     cands = [SIM_DIR / "third_party" / "so101", _PROJECT_LOCAL / "third_party" / "so101"]
     if os.environ.get("UNITA_LOCAL"):
@@ -50,7 +52,8 @@ def so101_dir() -> Path:
         "SO-101 MuJoCo 모델 파일(so101_new_calib.xml)을 찾지 못했습니다.\n"
         f"  찾아본 곳: 환경변수 SO101_DIR, {', '.join(map(str, cands))}\n"
         f"  해결: python {SIM_DIR / 'fetch_so101.py'}   (약 19MB, Apache-2.0)\n"
-        "        또는 이미 받은 폴더를 SO101_DIR 환경변수로 지정")
+        "        또는 이미 받은 폴더를 SO101_DIR 환경변수로 지정"
+    )
 
 
 def fetch_target() -> Path:

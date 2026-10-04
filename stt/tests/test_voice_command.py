@@ -1,5 +1,6 @@
 """마이크/Whisper 없이 돌릴 수 있는 로직 테스트 (lerobot_pac 원본 테스트를 옮기고 확장).
 
+실행:
     cd stt && python -m pytest -q tests      # pytest가 있으면
     python stt/tests/test_voice_command.py   # 없어도 실행 가능
 """
@@ -35,23 +36,64 @@ def run_vad(pattern, **kwargs):
 # 명령어 매칭
 # --------------------------------------------------------------------------- #
 POUR_CASES = [
-    "물 따라줘", "물 좀 따라 줄래", "물 좀 따라 줄래?", "물 부어줘", "물 한 잔 줘", "물 좀 주세요",
-    "물 따라 주세요", "따라줘", "부어 줘", "컵에 물 좀 부어 줄래?", "목마른데 물 좀 줄래?",
-    "물좀따라줘", "물 따 라 줘", "물 한잔만 주세요.", "물 마시고 싶어", "물을 따라주세요!",
-    "시원한 물 한 잔", "물 다라줘",  # 따->다 오인식도 "물+줘" 조합으로 잡힌다
+    "물 따라줘",
+    "물 좀 따라 줄래",
+    "물 좀 따라 줄래?",
+    "물 부어줘",
+    "물 한 잔 줘",
+    "물 좀 주세요",
+    "물 따라 주세요",
+    "따라줘",
+    "부어 줘",
+    "컵에 물 좀 부어 줄래?",
+    "목마른데 물 좀 줄래?",
+    "물좀따라줘",
+    "물 따 라 줘",
+    "물 한잔만 주세요.",
+    "물 마시고 싶어",
+    "물을 따라주세요!",
+    "시원한 물 한 잔",
+    "물 다라줘",  # 따->다 오인식도 "물+줘" 조합으로 잡힌다
 ]
 STOP_CASES = [
-    "멈춰", "멈춰!", "그만", "그만해", "정지", "스톱", "스탑", "Stop.", "STOP", "잠깐만",
-    "멈 춰", "그 만", "중지해 줘",
+    "멈춰",
+    "멈춰!",
+    "그만",
+    "그만해",
+    "정지",
+    "스톱",
+    "스탑",
+    "Stop.",
+    "STOP",
+    "잠깐만",
+    "멈 춰",
+    "그 만",
+    "중지해 줘",
 ]
 STOP_PRIORITY_CASES = [  # pour 와 stop 이 같이 있으면 stop
-    "그만 따라", "물 그만 따라줘", "따르지 마", "물 붓지 마", "물 따라줘 아니 멈춰",
-    "멈춰 물 따라줘", "물 따라줘. 정지.", "물 따라줘. 물 좀 부어 줄래? 멈춰. 그만.",  # 프롬프트 그대로 환각해도 stop
+    "그만 따라",
+    "물 그만 따라줘",
+    "따르지 마",
+    "물 붓지 마",
+    "물 따라줘 아니 멈춰",
+    "멈춰 물 따라줘",
+    "물 따라줘. 정지.",
+    "물 따라줘. 물 좀 부어 줄래? 멈춰. 그만.",  # 프롬프트 그대로 환각해도 stop
 ]
 NONE_CASES = [
-    "", "오늘 날씨 좋네요", "안녕하세요 반갑습니다", "이거 뭐예요?", "나를 따라와",
-    "따라서 결론은", "선물 좀 줘", "물건 좀 집어줘", "동물 좋아해요", "물어볼 게 있어요",
-    "시청해 주셔서 감사합니다", "법에 따르면", "따라가 보자",
+    "",
+    "오늘 날씨 좋네요",
+    "안녕하세요 반갑습니다",
+    "이거 뭐예요?",
+    "나를 따라와",
+    "따라서 결론은",
+    "선물 좀 줘",
+    "물건 좀 집어줘",
+    "동물 좋아해요",
+    "물어볼 게 있어요",
+    "시청해 주셔서 감사합니다",
+    "법에 따르면",
+    "따라가 보자",
 ]
 
 
@@ -93,12 +135,20 @@ def test_custom_commands_and_priority():
 # --------------------------------------------------------------------------- #
 def test_parse_enter_input():
     cases = {
-        "\n": ("record", None), "   \n": ("record", None),
-        "p\n": ("command", "pour"), "P\n": ("command", "pour"), "ㅔ\n": ("command", "pour"),
-        "s\n": ("command", "stop"), "ㄴ\n": ("command", "stop"),
-        "q\n": ("quit", "quit"), "ㅂ\n": ("quit", "quit"), "quit\n": ("quit", "quit"),
-        "물 따라줘\n": ("command", "pour"), "그만\n": ("command", "stop"),
-        "x\n": ("unknown", None), "hello\n": ("unknown", None),
+        "\n": ("record", None),
+        "   \n": ("record", None),
+        "p\n": ("command", "pour"),
+        "P\n": ("command", "pour"),
+        "ㅔ\n": ("command", "pour"),
+        "s\n": ("command", "stop"),
+        "ㄴ\n": ("command", "stop"),
+        "q\n": ("quit", "quit"),
+        "ㅂ\n": ("quit", "quit"),
+        "quit\n": ("quit", "quit"),
+        "물 따라줘\n": ("command", "pour"),
+        "그만\n": ("command", "stop"),
+        "x\n": ("unknown", None),
+        "hello\n": ("unknown", None),
     }
     for line, expected in cases.items():
         assert v.parse_enter_input(line) == expected, line
@@ -106,8 +156,9 @@ def test_parse_enter_input():
 
 def test_record_until_enter_post_roll():
     presses = iter([False] * 9 + [True])  # 10번째 프레임에서 Enter
-    pcm, by_enter = v.record_until_enter((bytes([S]) for _ in range(1000)), lambda: next(presses, True),
-                                         frame_ms=30, max_record_s=10)
+    pcm, by_enter = v.record_until_enter(
+        (bytes([S]) for _ in range(1000)), lambda: next(presses, True), frame_ms=30, max_record_s=10
+    )
     assert by_enter and len(pcm) == 10 + v.POST_ROLL_MS // 30
 
 
@@ -262,7 +313,7 @@ def test_save_command_retries_when_file_locked():
 def test_vad_records_utterance_with_preroll_and_trimmed_tail():
     out = run_vad([N] * 33 + [S] * 50 + [N] * 67)
     assert out.count(S) == 50
-    assert 0 < out.index(S) <= v.PRE_ROLL_MS // 30          # 시작 전 오디오 일부 포함
+    assert 0 < out.index(S) <= v.PRE_ROLL_MS // 30  # 시작 전 오디오 일부 포함
     keep = v.TRAILING_SILENCE_KEEP_MS // 30
     assert out.endswith(bytes([N] * keep)) and out[-keep - 1] == S
 
@@ -285,8 +336,8 @@ def test_vad_continue_vad_keeps_soft_speech():
     pattern = [N] * 10 + [S] * 20 + [2] * 40 + [S] * 20 + [N] * 60  # 작은 소리 1200ms 구간
     strict_only = v.record_utterance((bytes([f]) for f in pattern), Strict(), 30, 800, 15, 15)
     hysteresis = v.record_utterance((bytes([f]) for f in pattern), Strict(), 30, 800, 15, 15, Lenient())
-    assert strict_only.count(S) == 20   # 작은 소리 구간에서 끊김
-    assert hysteresis.count(S) == 40    # 끝까지 녹음
+    assert strict_only.count(S) == 20  # 작은 소리 구간에서 끊김
+    assert hysteresis.count(S) == 40  # 끝까지 녹음
 
 
 def test_vad_ignores_clicks_and_times_out():
@@ -323,7 +374,7 @@ def test_stream_resampler_matches_ideal_signal():
         t = np.arange(rate * 2) / rate
         x = 10000 * np.sin(2 * np.pi * 440 * t)
         r = v.StreamResampler(rate)
-        out = np.concatenate([r.process(x[i:i + block]) for i in range(0, len(x), block)])
+        out = np.concatenate([r.process(x[i : i + block]) for i in range(0, len(x), block)])
         assert abs(len(out) - 32000) <= 2, rate
         delay = (len(r.taps) - 1) / 2 / rate
         ref = 10000 * np.sin(2 * np.pi * 440 * (np.arange(len(out)) / 16000 - delay))
@@ -335,7 +386,7 @@ def test_stream_resampler_matches_ideal_signal():
 def test_stream_resampler_suppresses_aliasing():
     x = 10000 * np.sin(2 * np.pi * 12000 * np.arange(48000) / 48000)  # 16kHz에서 표현 불가한 톤
     r = v.StreamResampler(48000)
-    out = np.concatenate([r.process(x[i:i + 1440]) for i in range(0, 48000, 1440)])
+    out = np.concatenate([r.process(x[i : i + 1440]) for i in range(0, 48000, 1440)])
     assert 20 * np.log10(np.abs(out[800:-800]).max() / 10000) < -30
 
 
@@ -345,6 +396,7 @@ class FakePortAudioError(Exception):
 
 class FakeWasapiSD:
     """WASAPI처럼 16kHz/mono는 거부하고 48kHz 스테레오만 여는 가짜 sounddevice."""
+
     PortAudioError = FakePortAudioError
     closed = False
 
@@ -416,7 +468,12 @@ def test_parse_args():
     assert a.mode == "vad" and a.once and a.model == "base" and a.mic == 3
     a = v.parse_args(["--wav", "a.wav", "b.wav", "--initial-prompt", ""])
     assert a.wav == [Path("a.wav"), Path("b.wav")] and a.initial_prompt == ""
-    for bad in (["--mode", "auto"], ["--vad-aggressiveness", "4"], ["--frame-ms", "25"], ["--silence-ms", "0"]):
+    for bad in (
+        ["--mode", "auto"],
+        ["--vad-aggressiveness", "4"],
+        ["--frame-ms", "25"],
+        ["--silence-ms", "0"],
+    ):
         try:
             v.parse_args(bad)
         except SystemExit:
@@ -464,7 +521,10 @@ def test_default_out_dir(tmp_path=None):
             tmp_path = Path(stack.enter_context(tempfile.TemporaryDirectory()))
         old = os.environ.pop("UNITA_LOCAL", None)
         from unittest import mock
-        stack.enter_context(mock.patch.object(Path, "home", return_value=tmp_path / "home"))  # ~/UNITA_PAC2026/local 후보 차단
+
+        stack.enter_context(
+            mock.patch.object(Path, "home", return_value=tmp_path / "home")
+        )  # ~/UNITA_PAC2026/local 후보 차단
         try:
             fake = tmp_path / "proj" / "github" / "stt" / "voice_command.py"
             assert v.default_out_dir(fake) == fake.parent / "outputs"  # 폴더만 복사해 간 경우
@@ -477,7 +537,9 @@ def test_default_out_dir(tmp_path=None):
             assert v.default_out_dir(Path("/voice_command.py")) == Path("/outputs")  # 얕은 경로도 안 죽음
             (tmp_path / "home" / "UNITA_PAC2026" / "local").mkdir(parents=True)  # 홈 아래 프로젝트 local/
             other = tmp_path / "x" / "y" / "stt" / "voice_command.py"
-            assert v.default_out_dir(other) == tmp_path / "home" / "UNITA_PAC2026" / "local" / "outputs" / "stt"
+            assert (
+                v.default_out_dir(other) == tmp_path / "home" / "UNITA_PAC2026" / "local" / "outputs" / "stt"
+            )
         finally:
             os.environ.pop("UNITA_LOCAL", None)
             if old is not None:
@@ -537,6 +599,7 @@ if __name__ == "__main__":
 # --------------------------------------------------------------------------- #
 class PatternMic:
     """S/N 패턴대로 30ms 프레임(S = 진폭 8000, N = 0)을 주고, 다 쓰면 무음을 계속 준다."""
+
     peak = 10000
 
     def __init__(self, pattern):

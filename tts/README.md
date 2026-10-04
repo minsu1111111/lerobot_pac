@@ -69,12 +69,12 @@ python tts_player.py --wav-dir my_wavs
 ```python
 from tts_player import TTSPlayer
 
-tts = TTSPlayer()                     # 기본: 이 폴더의 wavs/ + phrases.py
-text = tts.say("start")               # 즉시 반환 (자막 문자열). 재생은 백그라운드
-...                                   # 제어 루프 계속
+tts = TTSPlayer()  # 기본: 이 폴더의 wavs/ + phrases.py
+text = tts.say("start")  # 즉시 반환 (자막 문자열). 재생은 백그라운드
+...  # 제어 루프 계속
 tts.say("done")
-tts.wait(timeout=6.0)                 # 대기열·재생이 끝날 때까지 (끝나면 True)
-tts.close()                           # 또는 with TTSPlayer() as tts: ...
+tts.wait(timeout=6.0)  # 대기열·재생이 끝날 때까지 (끝나면 True)
+tts.close()  # 또는 with TTSPlayer() as tts: ...
 ```
 
 생성자 인자 (모두 선택, 기본값은 예전과 동일):
@@ -122,18 +122,21 @@ pactl list short sinks       # PulseAudio 싱크 이름 → paplay 쪽 device
 
 ```python
 import sys
-sys.path.insert(0, "path/to/tts")          # 또는 패키지로: from tts.tts_player import TTSPlayer
+
+sys.path.insert(0, "path/to/tts")  # 또는 패키지로: from tts.tts_player import TTSPlayer
 from tts_player import TTSPlayer
 
-tts = TTSPlayer(wav_dir="myproj/voice_wavs")   # phrases.json 을 자동으로 읽음
+tts = TTSPlayer(wav_dir="myproj/voice_wavs")  # phrases.json 을 자동으로 읽음
 tts.say("hello")
 ```
 
 다른 오디오 라이브러리를 쓰고 싶으면 함수 백엔드를 넘깁니다:
 
 ```python
-def play(pcm: bytes, sr: int, device):     # 끝날 때까지 블록, 실패하면 예외
+def play(pcm: bytes, sr: int, device):  # 끝날 때까지 블록, 실패하면 예외
     ...
+
+
 tts = TTSPlayer(backends=(play, "aplay"))
 ```
 

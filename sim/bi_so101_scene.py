@@ -74,24 +74,53 @@ def build_spec(
     w.visual.headlight.ambient = [0.35, 0.35, 0.35]
     w.visual.global_.offwidth, w.visual.global_.offheight = 1280, 960
 
-    w.add_texture(name="sky", type=mujoco.mjtTexture.mjTEXTURE_SKYBOX, builtin=mujoco.mjtBuiltin.mjBUILTIN_GRADIENT,
-                  rgb1=[0.35, 0.45, 0.55], rgb2=[0.05, 0.05, 0.08], width=256, height=1536)
-    w.add_texture(name="grid", type=mujoco.mjtTexture.mjTEXTURE_2D, builtin=mujoco.mjtBuiltin.mjBUILTIN_CHECKER,
-                  rgb1=[0.82, 0.78, 0.70], rgb2=[0.76, 0.72, 0.64], mark=mujoco.mjtMark.mjMARK_EDGE,
-                  markrgb=[0.6, 0.58, 0.52], width=200, height=200)
+    w.add_texture(
+        name="sky",
+        type=mujoco.mjtTexture.mjTEXTURE_SKYBOX,
+        builtin=mujoco.mjtBuiltin.mjBUILTIN_GRADIENT,
+        rgb1=[0.35, 0.45, 0.55],
+        rgb2=[0.05, 0.05, 0.08],
+        width=256,
+        height=1536,
+    )
+    w.add_texture(
+        name="grid",
+        type=mujoco.mjtTexture.mjTEXTURE_2D,
+        builtin=mujoco.mjtBuiltin.mjBUILTIN_CHECKER,
+        rgb1=[0.82, 0.78, 0.70],
+        rgb2=[0.76, 0.72, 0.64],
+        mark=mujoco.mjtMark.mjMARK_EDGE,
+        markrgb=[0.6, 0.58, 0.52],
+        width=200,
+        height=200,
+    )
     tex = mujoco.mjtTextureRole.mjTEXROLE_RGB
     mat = w.add_material(name="table", texuniform=True, texrepeat=[10, 10], reflectance=0.0)
     mat.textures[tex] = "grid"
     wb = w.worldbody
-    wb.add_light(pos=[0.3, 0, 1.5], dir=[0, 0, -1], type=mujoco.mjtLightType.mjLIGHT_DIRECTIONAL, castshadow=True, diffuse=[0.6, 0.6, 0.6])
+    wb.add_light(
+        pos=[0.3, 0, 1.5],
+        dir=[0, 0, -1],
+        type=mujoco.mjtLightType.mjLIGHT_DIRECTIONAL,
+        castshadow=True,
+        diffuse=[0.6, 0.6, 0.6],
+    )
     # 테이블 면 = 바닥 평면 (10 cm 격자: texrepeat 10 / 1 m)
-    wb.add_geom(name="table", type=mujoco.mjtGeom.mjGEOM_PLANE, size=[1.0, 1.0, 0.05], pos=[0.25, 0, 0], material="table")
+    wb.add_geom(
+        name="table",
+        type=mujoco.mjtGeom.mjGEOM_PLANE,
+        size=[1.0, 1.0, 0.05],
+        pos=[0.25, 0, 0],
+        material="table",
+    )
 
     rigs = [("", 1.0, None)] + ([("ghost_", 0.35, [1.0, 0.1, 0.6])] if ghost else [])
     for pre, alpha, tint in rigs:
         for side, sgn in (("left", 1), ("right", -1)):
             yaw = np.deg2rad(-sgn * yaw_deg)
-            f = wb.add_frame(pos=[x_offset, sgn * spacing / 2, 0], quat=[np.cos(yaw / 2), 0, 0, np.sin(yaw / 2)])
+            f = wb.add_frame(
+                pos=[x_offset, sgn * spacing / 2, 0], quat=[np.cos(yaw / 2), 0, 0, np.sin(yaw / 2)]
+            )
             w.attach(_arm_spec(so101, alpha, tint, contacts and not pre), prefix=f"{pre}{side}_", frame=f)
 
     # 고정 카메라: front = 로봇 정면 위에서, top = 데이터셋 top 카메라와 비슷한 방향(팔이 화면 위쪽)
@@ -108,11 +137,22 @@ def build_spec(
     if props:  # mocap 소품: 위치는 MujocoBiSO101 이 그리퍼 상태로 갱신
         for name, p, y in (("bottle", BOTTLE, -spacing / 2), ("cup", CUP, spacing / 2)):
             b = wb.add_body(name=name, mocap=True, pos=[0.25, y, p["half"]])
-            b.add_geom(type=mujoco.mjtGeom.mjGEOM_CYLINDER, size=[p["radius"], p["half"], 0], rgba=p["rgba"],
-                       contype=0, conaffinity=0)
+            b.add_geom(
+                type=mujoco.mjtGeom.mjGEOM_CYLINDER,
+                size=[p["radius"], p["half"], 0],
+                rgba=p["rgba"],
+                contype=0,
+                conaffinity=0,
+            )
             if name == "bottle":  # 병목 (기울기 방향이 보이도록)
-                b.add_geom(type=mujoco.mjtGeom.mjGEOM_CYLINDER, size=[0.015, 0.02, 0], pos=[0, 0, p["half"] + 0.02],
-                           rgba=[0.9, 0.9, 0.95, 0.8], contype=0, conaffinity=0)
+                b.add_geom(
+                    type=mujoco.mjtGeom.mjGEOM_CYLINDER,
+                    size=[0.015, 0.02, 0],
+                    pos=[0, 0, p["half"] + 0.02],
+                    rgba=[0.9, 0.9, 0.95, 0.8],
+                    contype=0,
+                    conaffinity=0,
+                )
     return w
 
 
@@ -137,6 +177,7 @@ def main():
     print(f"nq={m.nq} nu={m.nu} → {a.out}")
     if a.view:
         import mujoco.viewer
+
         mujoco.viewer.launch(m)
 
 

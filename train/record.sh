@@ -2,9 +2,9 @@
 # 양팔 리더-팔로워 데이터 수집 (lerobot-record, bi_so_follower + bi_so_leader).
 # 포트·카메라·캘리브레이션 id 는 롤아웃과 같은 ~/UNITA_PAC2026/local/robot.env 에서 읽는다.
 #
-#   REPO_ID=UNITAmanipulation/pour_fixed_venue NUM=60 TASK="..." bash pac2026/train/record.sh
-#   DRY_RUN=1 bash pac2026/train/record.sh          # 명령만 출력
-#   RESUME=1 ... bash pac2026/train/record.sh       # 같은 데이터셋에 이어서 녹화
+#   REPO_ID=UNITAmanipulation/pour_fixed_venue NUM=60 TASK="..." bash train/record.sh
+#   DRY_RUN=1 bash train/record.sh          # 명령만 출력
+#   RESUME=1 ... bash train/record.sh       # 같은 데이터셋에 이어서 녹화
 #
 # 설정 (환경변수): REPO_ID, NUM(에피소드 수, 기본 60), EP_S(에피소드 길이 초, 기본 60), RESET_S(기본 20),
 #   TASK(작업 문장; ACT 는 안 쓰지만 데이터셋 메타에 남음), ROOT(저장 폴더, 기본 HF 캐시), PUSH(기본 false),

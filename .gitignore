@@ -12,3 +12,4 @@ third_party/
 
 # PC 별 로봇 설정 (예시는 rollout/robot.env.example)
 robot.env
+!docs/media/*.mp4

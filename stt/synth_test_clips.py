@@ -26,12 +26,31 @@ from scipy.io import wavfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from voice_command import OUT_DIR, SAMPLE_RATE  # noqa: E402
 
-VOICES = {"sunhi": "ko-KR-SunHiNeural", "injoon": "ko-KR-InJoonNeural", "hyunsu": "ko-KR-HyunsuMultilingualNeural"}
+VOICES = {
+    "sunhi": "ko-KR-SunHiNeural",
+    "injoon": "ko-KR-InJoonNeural",
+    "hyunsu": "ko-KR-HyunsuMultilingualNeural",
+}
 PHRASES = {
-    "pour": ["물 따라줘", "물 좀 따라 줄래?", "물 부어줘", "물 한 잔 줘", "물 좀 주세요", "컵에 물 좀 부어 줄래?",
-             "물 따라 주세요", "목마른데 물 좀 줄래?"],
+    "pour": [
+        "물 따라줘",
+        "물 좀 따라 줄래?",
+        "물 부어줘",
+        "물 한 잔 줘",
+        "물 좀 주세요",
+        "컵에 물 좀 부어 줄래?",
+        "물 따라 주세요",
+        "목마른데 물 좀 줄래?",
+    ],
     "stop": ["멈춰!", "그만", "정지", "스톱", "그만 따라", "잠깐, 멈춰!"],
-    "none": ["오늘 날씨 좋네요", "안녕하세요, 반갑습니다", "이거 뭐예요?", "나를 따라와", "선물 좀 줘", "물건 좀 집어줘"],
+    "none": [
+        "오늘 날씨 좋네요",
+        "안녕하세요, 반갑습니다",
+        "이거 뭐예요?",
+        "나를 따라와",
+        "선물 좀 줘",
+        "물건 좀 집어줘",
+    ],
 }
 RATES = ["+0%", "+15%", "-10%"]  # 화자마다 말 빠르기를 조금씩 다르게
 
@@ -44,8 +63,25 @@ def pink_noise(n: int, rng) -> np.ndarray:
 
 
 def to_wav16k(mp3: Path) -> np.ndarray:
-    raw = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(mp3), "-f", "s16le",
-                          "-ac", "1", "-ar", str(SAMPLE_RATE), "-"], check=True, capture_output=True).stdout
+    raw = subprocess.run(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-i",
+            str(mp3),
+            "-f",
+            "s16le",
+            "-ac",
+            "1",
+            "-ar",
+            str(SAMPLE_RATE),
+            "-",
+        ],
+        check=True,
+        capture_output=True,
+    ).stdout
     return np.frombuffer(raw, np.int16).astype(np.float32) / 32768
 
 

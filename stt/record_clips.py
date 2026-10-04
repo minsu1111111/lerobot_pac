@@ -67,13 +67,17 @@ def clip_name(label: str, speaker: str, condition: str, idx: int) -> str:
 
 def next_index(out: Path, label: str, speaker: str, condition: str) -> int:
     """out 에 이미 있는 같은 (정답, 화자, 환경) 클립 번호의 다음 번호."""
-    used = [int(m["idx"]) for f in out.glob(f"{label}__{speaker}_{condition}_*.wav")
-            if (m := CLIP_RE.match(f.name))]
+    used = [
+        int(m["idx"])
+        for f in out.glob(f"{label}__{speaker}_{condition}_*.wav")
+        if (m := CLIP_RE.match(f.name))
+    ]
     return max(used) + 1 if used else 0
 
 
-def build_plan(phrases: dict[str, list[str]], labels: list[str], repeat: int,
-               shuffle: bool, seed: int | None = None) -> list[tuple[str, str]]:
+def build_plan(
+    phrases: dict[str, list[str]], labels: list[str], repeat: int, shuffle: bool, seed: int | None = None
+) -> list[tuple[str, str]]:
     """[(정답, 문장), ...]. repeat 번 반복. shuffle 이면 라벨이 섞이도록 순서를 섞는다."""
     plan = [(label, text) for _ in range(repeat) for label in labels for text in phrases[label]]
     if shuffle:
@@ -112,16 +116,24 @@ def append_manifest(out: Path, row: dict) -> None:
         w.writerow(row)
 
 
-def run_session(plan: list[tuple[str, str]], mic, stdin, out: Path, speaker: str, condition: str,
-                frame_ms: int = 30, max_record_s: float = 8.0, min_peak: int = vcmd.MIN_PEAK,
-                ask: Callable[[str], None] = vcmd.log) -> list[dict]:
+def run_session(
+    plan: list[tuple[str, str]],
+    mic,
+    stdin,
+    out: Path,
+    speaker: str,
+    condition: str,
+    frame_ms: int = 30,
+    max_record_s: float = 8.0,
+    min_peak: int = vcmd.MIN_PEAK,
+    ask: Callable[[str], None] = vcmd.log,
+) -> list[dict]:
     """plan 을 차례로 녹음해 저장한다. 저장한 클립 정보 목록을 돌려준다. stdin EOF 또는 q 면 중단."""
     out.mkdir(parents=True, exist_ok=True)
     saved: list[dict] = []
     for i, (label, text) in enumerate(plan, 1):
         while True:  # r(다시 녹음) 이면 같은 문장을 반복
-            ask(f"\n[{i}/{len(plan)}] {label:<4}  \"{text}\"\n"
-                "  Enter = 녹음 시작  |  s = 건너뜀  |  q = 종료")
+            ask(f'\n[{i}/{len(plan)}] {label:<4}  "{text}"\n  Enter = 녹음 시작  |  s = 건너뜀  |  q = 종료')
             line = stdin.readline()
             cmd = line.strip().lower()
             if line == "" or cmd in vcmd.QUIT_KEYS:
@@ -136,8 +148,10 @@ def run_session(plan: list[tuple[str, str]], mic, stdin, out: Path, speaker: str
                 warn = "  <- 너무 작음 (마이크 연결/거리/음소거 확인)"
             elif peak >= CLIP_PEAK:
                 warn = "  <- 클리핑 (입력 볼륨을 낮추세요)"
-            ask(f"[녹음] {duration:.1f}초, 최대 진폭 {peak}{warn}\n"
-                "  Enter = 저장  |  r = 다시 녹음  |  s = 건너뜀  |  q = 종료")
+            ask(
+                f"[녹음] {duration:.1f}초, 최대 진폭 {peak}{warn}\n"
+                "  Enter = 저장  |  r = 다시 녹음  |  s = 건너뜀  |  q = 종료"
+            )
             line = stdin.readline()
             cmd = line.strip().lower()
             if cmd == "r":
@@ -148,9 +162,16 @@ def run_session(plan: list[tuple[str, str]], mic, stdin, out: Path, speaker: str
                 break
             name = clip_name(label, speaker, condition, next_index(out, label, speaker, condition))
             vcmd.save_wav(out / name, pcm)
-            row = {"file": name, "expected": label, "phrase": text, "speaker": speaker, "condition": condition,
-                   "duration_s": round(duration, 2), "peak": peak,
-                   "timestamp": datetime.now().astimezone().isoformat(timespec="seconds")}
+            row = {
+                "file": name,
+                "expected": label,
+                "phrase": text,
+                "speaker": speaker,
+                "condition": condition,
+                "duration_s": round(duration, 2),
+                "peak": peak,
+                "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+            }
             append_manifest(out, row)
             saved.append(row)
             ask(f"[저장] {name}")
@@ -159,8 +180,9 @@ def run_session(plan: list[tuple[str, str]], mic, stdin, out: Path, speaker: str
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0],
-                                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0], formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     p.add_argument("--speaker", help="화자 이름 (영문/한글, 예: minsu)")
     p.add_argument("--condition", choices=CONDITIONS, help="quiet = 조용함, noisy = 현장 소음")
     p.add_argument("--repeat", type=int, default=1, help="문장 목록을 몇 번 반복할지")
@@ -207,16 +229,21 @@ def main(argv: list[str] | None = None) -> int:
         return vcmd.EXIT_ERROR
 
     plan = build_plan(PHRASES, args.labels, args.repeat, not args.no_shuffle, args.seed)
-    vcmd.log(f"[녹음 준비] 화자 {args.speaker}, 환경 {args.condition}, {len(plan)}문장 -> {args.out}\n"
-             f"  {CONDITION_HINT[args.condition]}")
+    vcmd.log(
+        f"[녹음 준비] 화자 {args.speaker}, 환경 {args.condition}, {len(plan)}문장 -> {args.out}\n"
+        f"  {CONDITION_HINT[args.condition]}"
+    )
     try:
-        saved = run_session(plan, mic, sys.stdin, args.out, args.speaker, args.condition,
-                            args.frame_ms, args.max_record_s)
+        saved = run_session(
+            plan, mic, sys.stdin, args.out, args.speaker, args.condition, args.frame_ms, args.max_record_s
+        )
     except KeyboardInterrupt:
         vcmd.log("\n[종료] Ctrl+C (그때까지 저장한 클립은 남아 있음)")
         return vcmd.EXIT_OK
-    vcmd.log(f"\n[완료] {len(saved)}개 저장 -> {args.out}\n"
-             f"  채점: python {Path(__file__).with_name('recognition_test.py')} {args.out} --device cpu")
+    vcmd.log(
+        f"\n[완료] {len(saved)}개 저장 -> {args.out}\n"
+        f"  채점: python {Path(__file__).with_name('recognition_test.py')} {args.out} --device cpu"
+    )
     return vcmd.EXIT_OK
 
 

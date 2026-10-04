@@ -57,7 +57,10 @@ def check(name, fail_status="FAIL"):
                 out = fn(*a, **kw)
                 status, msg = out if isinstance(out, tuple) else ("PASS", str(out or ""))
             except Exception as e:
-                status, msg = fail_status, f"{type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else ''}"
+                status, msg = (
+                    fail_status,
+                    f"{type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else ''}",
+                )
                 if os.environ.get("OFFLINE_CHECK_DEBUG"):
                     traceback.print_exc()
             record(name, status, f"{msg} ({time.perf_counter() - t:.1f}s)")
@@ -109,7 +112,6 @@ def c_torch():
 @check("lerobot import")
 def c_lerobot():
     import lerobot
-
     import lerobot.policies  # noqa: F401
     import lerobot.robots.bi_so_follower  # noqa: F401
     from lerobot.cameras.opencv import OpenCVCameraConfig  # noqa: F401
@@ -121,7 +123,6 @@ def c_lerobot():
 def c_policy(args):
     import numpy as np
     import torch
-
     from pour_rollout import Policy
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -131,11 +132,17 @@ def c_policy(args):
     pol = Policy(args.policy, dev, None, None)
     load_s = time.perf_counter() - t
     ts = pol.warmup(n=3)  # zeros 관측 (state 12, top 480x640, wrist 240x320 x2)
-    a = pol({**{k: 0.0 for k in __import__("backends").JOINT_KEYS},
-             **{c: np.zeros(s, np.uint8) for c, s in __import__("backends").CAM_SHAPES.items()}})
+    a = pol(
+        {
+            **dict.fromkeys(__import__("backends").JOINT_KEYS, 0.0),
+            **{c: np.zeros(s, np.uint8) for c, s in __import__("backends").CAM_SHAPES.items()},
+        }
+    )
     assert a.shape == (12,) and np.isfinite(a).all()
-    msg = (f"{dev}, 로딩 {load_s:.1f}s, 청크 추론 첫 {ts[0] * 1e3:.0f}ms / 이후 {min(ts[1:]) * 1e3:.0f}ms, "
-           f"chunk={pol.cfg.chunk_size} n_action_steps={pol.cfg.n_action_steps} ← {pol.path}")
+    msg = (
+        f"{dev}, 로딩 {load_s:.1f}s, 청크 추론 첫 {ts[0] * 1e3:.0f}ms / 이후 {min(ts[1:]) * 1e3:.0f}ms, "
+        f"chunk={pol.cfg.chunk_size} n_action_steps={pol.cfg.n_action_steps} ← {pol.path}"
+    )
     if dev == "cuda":
         msg += f", 최대 VRAM {torch.cuda.max_memory_allocated() / 2**20:.0f}MB"
     return msg
@@ -157,7 +164,6 @@ def probe_backbone(mode: str, policy: str):
     block_network()
     import numpy as np
     import torch
-
     from pour_rollout import Policy
 
     torch.manual_seed(0)
@@ -178,8 +184,13 @@ def c_resnet_probe(args):
 
     def run(mode, torch_home):
         env = dict(os.environ, TORCH_HOME=torch_home, CUDA_VISIBLE_DEVICES="")
-        p = subprocess.run([sys.executable, __file__, "--_probe", mode, "--policy", args.policy],
-                           env=env, capture_output=True, text=True, timeout=600)
+        p = subprocess.run(
+            [sys.executable, __file__, "--_probe", mode, "--policy", args.policy],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
         line = [ln for ln in p.stdout.splitlines() if ln.startswith("PROBE_OK ")]
         if line:
             return np.array(json.loads(line[0][9:])), ""
@@ -191,8 +202,10 @@ def c_resnet_probe(args):
         a_none, err_none = run("none", empty)
     real_home = os.environ.get("TORCH_HOME", str(Path.home() / ".cache/torch"))
     a_def_cached, err_c = run("default", real_home)
-    parts = [f"(a) 캐시 없음+원래 설정: {'생성됨' if a_def is not None else '실패 → ' + err_def[:120]}",
-             f"(b) 캐시 없음+None: {'생성됨' if a_none is not None else '실패 → ' + err_none[:120]}"]
+    parts = [
+        f"(a) 캐시 없음+원래 설정: {'생성됨' if a_def is not None else '실패 → ' + err_def[:120]}",
+        f"(b) 캐시 없음+None: {'생성됨' if a_none is not None else '실패 → ' + err_none[:120]}",
+    ]
     if a_def_cached is not None and a_none is not None:
         diff = float(np.abs(a_def_cached - a_none).max())
         parts.append(f"(c) 원래(캐시 사용) vs None 출력 최대차 {diff:.2e}")
@@ -250,7 +263,9 @@ def c_audio():
         devs = sd.query_devices()
         ins = [d["name"] for d in devs if d["max_input_channels"] > 0]
         outs = [d["name"] for d in devs if d["max_output_channels"] > 0]
-        return ("PASS" if ins and outs else "WARN"), f"입력 {len(ins)}개 {ins[:3]}, 출력 {len(outs)}개 {outs[:3]}"
+        return (
+            "PASS" if ins and outs else "WARN"
+        ), f"입력 {len(ins)}개 {ins[:3]}, 출력 {len(outs)}개 {outs[:3]}"
     except Exception as e:  # PortAudio 없음 등 → ALSA 목록으로 대체
         msg = f"sounddevice 불가({type(e).__name__}: {e}); "
         out = []
@@ -278,8 +293,10 @@ def main():
 
     if args.block_network:
         block_network()
-    print(f"[offline_check] HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1"
-          f"{' + 네트워크 차단' if args.block_network else ''}")
+    print(
+        f"[offline_check] HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1"
+        f"{' + 네트워크 차단' if args.block_network else ''}"
+    )
     c_env()
     c_torch()
     c_lerobot()
@@ -304,8 +321,10 @@ def main():
         print(f"{s:4s}  {n:<{w}}  {m[:150]}")
     print("=" * 72)
     fails = [n for n, s, _ in RESULTS if s == "FAIL"]
-    print(f"결과: {'FAIL ' + str(fails) if fails else 'PASS'} "
-          f"(WARN {sum(s == 'WARN' for _, s, _ in RESULTS)}개)")
+    print(
+        f"결과: {'FAIL ' + str(fails) if fails else 'PASS'} "
+        f"(WARN {sum(s == 'WARN' for _, s, _ in RESULTS)}개)"
+    )
     return 1 if fails else 0
 
 

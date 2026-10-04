@@ -55,7 +55,7 @@ def build_track(events, duration_s: float, wav_dir: Path = WAV_DIR):
         i = max(int(t * sr), busy_until)
         j = min(i + len(x), len(track))
         if i < j:
-            track[i:j] += x[:j - i]
+            track[i:j] += x[: j - i]
         busy_until = i + len(x)
     return sr, np.clip(track, -1, 1)
 
@@ -65,16 +65,41 @@ def mux(video: Path, run_dir: Path, out: Path | None = None) -> Path:
 
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
     out = out or video.with_name(video.stem + "_audio.mp4")
-    probe = subprocess.run([ffmpeg, "-hide_banner", "-i", str(video), "-map", "0:v:0", "-f", "null", "-"],
-                           capture_output=True, text=True).stderr
+    probe = subprocess.run(
+        [ffmpeg, "-hide_banner", "-i", str(video), "-map", "0:v:0", "-f", "null", "-"],
+        capture_output=True,
+        text=True,
+    ).stderr
     n_frames = int(probe.replace("\r", "\n").split("frame=")[-1].split()[0])
     events = tts_events(run_dir)
     sr, track = build_track(events, n_frames / FPS)
     wav = out.with_suffix(".tts.wav")
     wavfile.write(wav, sr, (track * 32767).astype(np.int16))
-    subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(video), "-i", str(wav),
-                    "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "128k", str(out)],
-                   check=True)
+    subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(video),
+            "-i",
+            str(wav),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            str(out),
+        ],
+        check=True,
+    )
     wav.unlink()
     print(f"[영상] TTS {len(events)}개 ({', '.join(f'{k}@{t:.1f}s' for t, k in events)}) → {out}")
     return out

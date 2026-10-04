@@ -38,7 +38,7 @@ def expected_label(path: Path) -> str | None:
 
 def summarize(rows: list[dict]) -> dict:
     """rows(expected, got, stt_s) -> 정확도, 혼동표, 위험 오류, 지연시간."""
-    conf = {e: {g: 0 for g in LABELS} for e in LABELS}
+    conf = {e: dict.fromkeys(LABELS, 0) for e in LABELS}
     for r in rows:
         conf[r["expected"]][r["got"]] += 1
     n = len(rows)
@@ -48,8 +48,9 @@ def summarize(rows: list[dict]) -> dict:
         "n": n,
         "accuracy": correct / n if n else 0.0,
         "confusion": conf,
-        "per_label_recall": {k: (conf[k][k] / sum(conf[k].values()) if sum(conf[k].values()) else None)
-                             for k in LABELS},
+        "per_label_recall": {
+            k: (conf[k][k] / sum(conf[k].values()) if sum(conf[k].values()) else None) for k in LABELS
+        },
         "missed_stop": conf["stop"]["pour"] + conf["stop"]["none"],
         "false_pour": conf["stop"]["pour"] + conf["none"]["pour"],
         "stt_mean_s": float(stt.mean()) if len(stt) else 0.0,
@@ -68,18 +69,23 @@ def print_summary(s: dict) -> None:
     rec = ", ".join(f"{k} {v * 100:.0f}%" for k, v in s["per_label_recall"].items() if v is not None)
     print(f"라벨별 재현율: {rec}")
     print(f"위험 오류: stop 누락 {s['missed_stop']}건, 오작동 pour {s['false_pour']}건")
-    print(f"STT 지연: 평균 {s['stt_mean_s']:.2f}s, 중앙값 {s['stt_median_s']:.2f}s, p95 {s['stt_p95_s']:.2f}s, 최대 {s['stt_max_s']:.2f}s")
+    print(
+        f"STT 지연: 평균 {s['stt_mean_s']:.2f}s, 중앙값 {s['stt_median_s']:.2f}s, p95 {s['stt_p95_s']:.2f}s, 최대 {s['stt_max_s']:.2f}s"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0],
-                                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0], formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     p.add_argument("clips", type=Path, help="wav 폴더")
     p.add_argument("--model", default="small")
     p.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"))
     p.add_argument("--initial-prompt", default=vcmd.INITIAL_PROMPT, help="'' = 사용 안 함")
     p.add_argument("--fallback", action="store_true", help="Whisper 기본 temperature 재시도 사용 (비교용)")
-    p.add_argument("--sample-len", type=int, default=vcmd.SAMPLE_LEN, help="생성 토큰 상한 (0 = Whisper 기본 224)")
+    p.add_argument(
+        "--sample-len", type=int, default=vcmd.SAMPLE_LEN, help="생성 토큰 상한 (0 = Whisper 기본 224)"
+    )
     p.add_argument("--threads", type=int, default=None, help="torch CPU 스레드 수 (기본: torch 기본)")
     p.add_argument("--out", type=Path, default=None, help="CSV 경로 (기본: <출력 폴더>/recognition_...csv)")
     args = p.parse_args(argv)
@@ -94,8 +100,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     temp = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0) if args.fallback else 0.0
-    vc = vcmd.VoiceCommander(args.model, args.device, initial_prompt=args.initial_prompt, temperature=temp,
-                             sample_len=args.sample_len or None, num_threads=args.threads)  # 워밍업 포함
+    vc = vcmd.VoiceCommander(
+        args.model,
+        args.device,
+        initial_prompt=args.initial_prompt,
+        temperature=temp,
+        sample_len=args.sample_len or None,
+        num_threads=args.threads,
+    )  # 워밍업 포함
 
     rows = []
     print(f"\n{'결과':<4} {'정답':<5} {'인식':<5} {'STT(s)':>6}  파일 / 텍스트")
@@ -103,24 +115,39 @@ def main(argv: list[str] | None = None) -> int:
         exp = expected_label(f)
         r = vc.transcribe_file(f)
         got = r.command or "none"
-        rows.append({"file": str(f.relative_to(args.clips)), "expected": exp, "got": got,
-                     "ok": int(exp == got), "text": r.text, "duration_s": round(r.duration_s, 2),
-                     "stt_s": round(r.stt_s, 3)})
-        print(f"{'O' if exp == got else 'X':<4} {exp:<5} {got:<5} {r.stt_s:>6.2f}  {f.name}  \"{r.text}\"",
-              flush=True)
+        rows.append(
+            {
+                "file": str(f.relative_to(args.clips)),
+                "expected": exp,
+                "got": got,
+                "ok": int(exp == got),
+                "text": r.text,
+                "duration_s": round(r.duration_s, 2),
+                "stt_s": round(r.stt_s, 3),
+            }
+        )
+        print(
+            f'{"O" if exp == got else "X":<4} {exp:<5} {got:<5} {r.stt_s:>6.2f}  {f.name}  "{r.text}"',
+            flush=True,
+        )
 
     s = summarize(rows)
     print_summary(s)
 
-    out = args.out or vcmd.OUT_DIR / f"recognition_{args.clips.resolve().name}_{datetime.now():%Y%m%d_%H%M%S}.csv"
+    out = (
+        args.out
+        or vcmd.OUT_DIR / f"recognition_{args.clips.resolve().name}_{datetime.now():%Y%m%d_%H%M%S}.csv"
+    )
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
-    print(f"\n[저장] {out}  (model={args.model}, device={vc.device}, prompt={args.initial_prompt!r}, fallback={args.fallback}, "
-          f"sample_len={args.sample_len}, threads={args.threads}, "
-          f"로딩 {vc.load_s:.1f}s)")
+    print(
+        f"\n[저장] {out}  (model={args.model}, device={vc.device}, prompt={args.initial_prompt!r}, fallback={args.fallback}, "
+        f"sample_len={args.sample_len}, threads={args.threads}, "
+        f"로딩 {vc.load_s:.1f}s)"
+    )
     return 0
 
 

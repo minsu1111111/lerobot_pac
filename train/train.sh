@@ -7,9 +7,9 @@
 #
 # 예)
 #   DATASET_ROOT=~/datasets/pour_venue REPO_ID=UNITAmanipulation/pour_venue \
-#   MODE=finetune STEPS=30000 SAVE_FREQ=5000 bash pac2026/train/train.sh
-#   DRY_RUN=1 ... bash pac2026/train/train.sh          # 명령만 출력
-#   bash pac2026/train/train.sh --log_freq=10          # 뒤에 붙인 인자는 lerobot-train 에 그대로 전달
+#   MODE=finetune STEPS=30000 SAVE_FREQ=5000 bash train/train.sh
+#   DRY_RUN=1 ... bash train/train.sh          # 명령만 출력
+#   bash train/train.sh --log_freq=10          # 뒤에 붙인 인자는 lerobot-train 에 그대로 전달
 #
 # 환경변수 (기본값):
 #   MODE=finetune | scratch

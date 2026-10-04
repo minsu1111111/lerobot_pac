@@ -70,7 +70,9 @@ def default_out_dir(module_file: str | Path = __file__) -> Path:
         return Path(env).expanduser() / "outputs" / "stt"
     here = Path(module_file).resolve()
     parents = here.parents
-    for local in ([parents[2] / "local"] if len(parents) > 2 else []) + [Path.home() / "UNITA_PAC2026" / "local"]:
+    for local in ([parents[2] / "local"] if len(parents) > 2 else []) + [
+        Path.home() / "UNITA_PAC2026" / "local"
+    ]:
         if local.is_dir():
             return local / "outputs" / "stt"
     return here.parent / "outputs"
@@ -88,8 +90,24 @@ COMMANDS: dict[str, list[str]] = {
     # "~지 마"(따르지 마) 도 안전하게 정지로 본다.
     # "정진"/"스토"/"스톰"/"스프" 는 Whisper 가 "정지"/"스톱"을 잘못 받아쓴 형태 (합성 음성 시험에서 확인).
     # stop 쪽 오탐은 안전하므로(로봇이 멈출 뿐) 오인식 형태를 넉넉히 받는다.
-    STOP: ["정지", "정진", "멈춰", "멈추", "멈춤", "그만", "중지", "스톱", "스탑", "스토", "스톰", "스프", "stop",
-           "잠깐", "지마", "지말"],
+    STOP: [
+        "정지",
+        "정진",
+        "멈춰",
+        "멈추",
+        "멈춤",
+        "그만",
+        "중지",
+        "스톱",
+        "스탑",
+        "스토",
+        "스톰",
+        "스프",
+        "stop",
+        "잠깐",
+        "지마",
+        "지말",
+    ],
     # 붓는 동사. "물" 없이 "따라줘"만 말해도 pour.
     POUR: ["따라", "따뤄", "따르", "부어", "한잔"],
 }
@@ -169,9 +187,12 @@ def normalize(text: str) -> str:
     return re.sub(r"[\s\W_]+", "", text).lower()
 
 
-def match_command(text: str, commands: dict[str, list[str]] = COMMANDS,
-                  exclude: dict[str, list[str]] = COMMAND_EXCLUDE,
-                  priority: tuple[str, ...] = COMMAND_PRIORITY) -> str | None:
+def match_command(
+    text: str,
+    commands: dict[str, list[str]] = COMMANDS,
+    exclude: dict[str, list[str]] = COMMAND_EXCLUDE,
+    priority: tuple[str, ...] = COMMAND_PRIORITY,
+) -> str | None:
     """텍스트에서 명령을 찾는다 (순수 함수). 여러 개면 priority 순서(stop 우선).
 
     예) "물 따라줘" -> "pour", "그만 따라" -> "stop", "나를 따라와" -> None
@@ -239,20 +260,30 @@ def import_sounddevice():
     except ImportError as e:
         raise SttError("[오류] sounddevice가 없습니다: pip install sounddevice") from e
     except OSError as e:  # PortAudio 공유 라이브러리를 못 찾음 (주로 Linux)
-        hint = "sudo apt install libportaudio2" if not IS_WINDOWS else "pip install --force-reinstall sounddevice"
+        hint = (
+            "sudo apt install libportaudio2"
+            if not IS_WINDOWS
+            else "pip install --force-reinstall sounddevice"
+        )
         raise SttError(f"[오류] PortAudio를 불러오지 못했습니다: {e}\n       {hint}") from e
     return sd
 
 
 def mic_help() -> str:
-    tips = ["--list-devices 로 입력 장치 목록을 보고 --mic 번호로 지정하세요.",
-            "마이크가 연결되어 있는지, 다른 프로그램이 독점하고 있지 않은지 확인하세요."]
+    tips = [
+        "--list-devices 로 입력 장치 목록을 보고 --mic 번호로 지정하세요.",
+        "마이크가 연결되어 있는지, 다른 프로그램이 독점하고 있지 않은지 확인하세요.",
+    ]
     if IS_WINDOWS:
-        tips += ["설정 > 개인 정보 및 보안 > 마이크 에서 '데스크톱 앱이 마이크에 액세스하도록 허용'을 켜세요.",
-                 "설정 > 시스템 > 소리 > 입력 에서 장치가 '허용'이고 입력 볼륨이 0이 아닌지 확인하세요."]
+        tips += [
+            "설정 > 개인 정보 및 보안 > 마이크 에서 '데스크톱 앱이 마이크에 액세스하도록 허용'을 켜세요.",
+            "설정 > 시스템 > 소리 > 입력 에서 장치가 '허용'이고 입력 볼륨이 0이 아닌지 확인하세요.",
+        ]
     elif IS_LINUX:
-        tips += ["arecord -l 로 마이크가 인식되는지, pavucontrol 에서 음소거가 아닌지 확인하세요.",
-                 "'hw:' 장치가 안 열리면 --mic pulse 또는 --mic default 를 쓰세요."]
+        tips += [
+            "arecord -l 로 마이크가 인식되는지, pavucontrol 에서 음소거가 아닌지 확인하세요.",
+            "'hw:' 장치가 안 열리면 --mic pulse 또는 --mic default 를 쓰세요.",
+        ]
     return "\n".join(f"       - {tip}" for tip in tips)
 
 
@@ -275,7 +306,7 @@ class StreamResampler:
         self.taps = firwin(int(32 * ratio) | 1, cutoff=0.45 * min(in_rate, out_rate), fs=in_rate)
         self.zi = np.zeros(len(self.taps) - 1)
         self.step = in_rate / out_rate
-        self.pos = 0.0          # 다음 출력 샘플의 위치 (self.buf 기준, 소수)
+        self.pos = 0.0  # 다음 출력 샘플의 위치 (self.buf 기준, 소수)
         self.buf = np.zeros(0)  # 아직 보간에 필요한 필터링된 입력
 
     def process(self, x: np.ndarray) -> np.ndarray:
@@ -320,8 +351,9 @@ class Microphone:
         last_error: Exception | None = None
         for rate, channels in dict.fromkeys([(SAMPLE_RATE, 1), (native_rate, 1), (native_rate, stereo)]):
             try:
-                self.sd.check_input_settings(device=self.device, samplerate=rate,
-                                             channels=channels, dtype="int16")
+                self.sd.check_input_settings(
+                    device=self.device, samplerate=rate, channels=channels, dtype="int16"
+                )
                 return rate, channels
             except (self.sd.PortAudioError, ValueError) as e:
                 last_error = e
@@ -344,8 +376,13 @@ class Microphone:
         self.peak = 0
         warned = False
 
-        with self.sd.RawInputStream(samplerate=self.rate, blocksize=blocksize, device=self.device,
-                                    channels=self.channels, dtype="int16") as stream:
+        with self.sd.RawInputStream(
+            samplerate=self.rate,
+            blocksize=blocksize,
+            device=self.device,
+            channels=self.channels,
+            dtype="int16",
+        ) as stream:
             while True:
                 data, overflowed = stream.read(blocksize)
                 if overflowed and not warned:
@@ -433,8 +470,13 @@ def line_ready(stream, timeout: float = 0.0) -> bool:
     return bool(select.select([fd], [], [], timeout)[0])
 
 
-def record_until_enter(frames: Iterable[bytes], stop_requested: Callable[[], bool], frame_ms: int,
-                       max_record_s: float, post_roll_ms: int = POST_ROLL_MS) -> tuple[bytes, bool]:
+def record_until_enter(
+    frames: Iterable[bytes],
+    stop_requested: Callable[[], bool],
+    frame_ms: int,
+    max_record_s: float,
+    post_roll_ms: int = POST_ROLL_MS,
+) -> tuple[bytes, bool]:
     """stop_requested() 가 True 가 될 때(Enter)까지 녹음. (pcm, Enter로_끝났는지) 반환.
 
     Enter 뒤에도 post_roll_ms 만큼 더 받는다. max_record_s 에 닿으면 강제로 끊는다.
@@ -466,19 +508,32 @@ def import_webrtcvad():
             import webrtcvad
     except ImportError as e:
         if "pkg_resources" in str(e):  # 최신 setuptools에서 pkg_resources가 빠진 경우
-            raise SttError(f"[오류] webrtcvad import 실패: {e}\n"
-                           "       pip install \"setuptools<81\"  또는  pip install webrtcvad-wheels") from e
+            raise SttError(
+                f"[오류] webrtcvad import 실패: {e}\n"
+                '       pip install "setuptools<81"  또는  pip install webrtcvad-wheels'
+            ) from e
         if IS_WINDOWS:
-            raise SttError("[오류] webrtcvad가 없습니다: pip install webrtcvad-wheels\n"
-                           "       (원본 webrtcvad 패키지는 Visual C++ Build Tools가 있어야 설치됩니다)") from e
-        raise SttError("[오류] webrtcvad가 없습니다: pip install webrtcvad\n"
-                       "       (빌드 실패 시 sudo apt install build-essential python3-dev 후 재시도,\n"
-                       "        또는 미리 빌드된 pip install webrtcvad-wheels)") from e
+            raise SttError(
+                "[오류] webrtcvad가 없습니다: pip install webrtcvad-wheels\n"
+                "       (원본 webrtcvad 패키지는 Visual C++ Build Tools가 있어야 설치됩니다)"
+            ) from e
+        raise SttError(
+            "[오류] webrtcvad가 없습니다: pip install webrtcvad\n"
+            "       (빌드 실패 시 sudo apt install build-essential python3-dev 후 재시도,\n"
+            "        또는 미리 빌드된 pip install webrtcvad-wheels)"
+        ) from e
     return webrtcvad
 
 
-def record_utterance(frames: Iterable[bytes], vad, frame_ms: int, silence_ms: int,
-                     timeout_s: float, max_record_s: float, continue_vad=None) -> bytes | None:
+def record_utterance(
+    frames: Iterable[bytes],
+    vad,
+    frame_ms: int,
+    silence_ms: int,
+    timeout_s: float,
+    max_record_s: float,
+    continue_vad=None,
+) -> bytes | None:
     """말소리가 시작되면 녹음하고, silence_ms 동안 무음이면 종료한다.
 
     timeout_s 안에 말소리가 시작되지 않으면 None을 돌려준다.
@@ -519,8 +574,10 @@ def record_utterance(frames: Iterable[bytes], vad, frame_ms: int, silence_ms: in
         if silence_run >= silence_frames:
             break
         if len(recorded) >= max_frames:
-            log(f"[경고] 최대 녹음 길이 {max_record_s:g}초 도달 - 강제 종료 "
-                "(주변 소음이 크면 --vad-aggressiveness를 높여보세요)")
+            log(
+                f"[경고] 최대 녹음 길이 {max_record_s:g}초 도달 - 강제 종료 "
+                "(주변 소음이 크면 --vad-aggressiveness를 높여보세요)"
+            )
             break
 
     if not triggered:  # 프레임 소스가 먼저 끝난 경우
@@ -554,19 +611,30 @@ def load_whisper(model_name: str, device: str):
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
     elif device == "cuda" and not torch.cuda.is_available():
-        raise SttError("[오류] device=cuda 를 지정했지만 CUDA를 사용할 수 없습니다. --stt-device cpu 로 실행하세요.")
+        raise SttError(
+            "[오류] device=cuda 를 지정했지만 CUDA를 사용할 수 없습니다. --stt-device cpu 로 실행하세요."
+        )
 
     log(f"[STT] Whisper '{model_name}' 모델 로딩 중 ({device}) - 첫 실행이면 다운로드에 시간이 걸립니다...")
     try:
         model = whisper.load_model(model_name, device=device)
     except RuntimeError as e:  # 잘못된 모델 이름, GPU 메모리 부족 등
-        raise SttError(f"[오류] Whisper 모델 로딩 실패: {e}\n"
-                       "       GPU 메모리 부족이면 --stt-device cpu 또는 더 작은 --model 을 쓰세요.") from e
+        raise SttError(
+            f"[오류] Whisper 모델 로딩 실패: {e}\n"
+            "       GPU 메모리 부족이면 --stt-device cpu 또는 더 작은 --model 을 쓰세요."
+        ) from e
     return model, device
 
 
-def transcribe(model, audio: np.ndarray, fp16: bool, initial_prompt: str | None = INITIAL_PROMPT,
-               temperature=0.0, sample_len: int | None = SAMPLE_LEN, without_timestamps: bool = True) -> str:
+def transcribe(
+    model,
+    audio: np.ndarray,
+    fp16: bool,
+    initial_prompt: str | None = INITIAL_PROMPT,
+    temperature=0.0,
+    sample_len: int | None = SAMPLE_LEN,
+    without_timestamps: bool = True,
+) -> str:
     """16kHz mono float32 -> 텍스트. 지연시간 상한을 두는 설정으로 부른다.
 
     temperature=0.0     : 한 번만 디코딩 (greedy, beam 없음). Whisper 기본값 (0.0, 0.2, ..., 1.0) 은 잡음에서
@@ -634,11 +702,23 @@ class VoiceCommander:
     (None = torch 기본). warmup: 모델 이름으로 로딩했을 때 1초 잡음을 한 번 변환해 첫 명령의 지연을 없앤다.
     """
 
-    def __init__(self, model="small", device: str = "auto", mic: int | str | None = None,
-                 max_record_s: float = 10.0, initial_prompt: str | None = INITIAL_PROMPT,
-                 fp16: bool | None = None, temperature=0.0, min_peak: int = MIN_PEAK, frame_ms: int = 30,
-                 stdin=None, save_wav_path: Path | None = None, sample_len: int | None = SAMPLE_LEN,
-                 num_threads: int | None = None, warmup: bool = True):
+    def __init__(
+        self,
+        model="small",
+        device: str = "auto",
+        mic: int | str | None = None,
+        max_record_s: float = 10.0,
+        initial_prompt: str | None = INITIAL_PROMPT,
+        fp16: bool | None = None,
+        temperature=0.0,
+        min_peak: int = MIN_PEAK,
+        frame_ms: int = 30,
+        stdin=None,
+        save_wav_path: Path | None = None,
+        sample_len: int | None = SAMPLE_LEN,
+        num_threads: int | None = None,
+        warmup: bool = True,
+    ):
         if isinstance(model, str):
             t = time.perf_counter()
             self.model, self.device = load_whisper(model, device)
@@ -684,7 +764,9 @@ class VoiceCommander:
             return CommandResult("", None, "voice", duration, 0.0)  # 무음: Whisper 환각 방지
         t = time.perf_counter()
         with torch_threads(self.num_threads):
-            text = transcribe(self.model, audio, self.fp16, self.initial_prompt, self.temperature, self.sample_len)
+            text = transcribe(
+                self.model, audio, self.fp16, self.initial_prompt, self.temperature, self.sample_len
+            )
         stt_s = time.perf_counter() - t
         return CommandResult(text, match_command(text), "voice", duration, stt_s)
 
@@ -755,23 +837,29 @@ class VoiceCommander:
         return self._finish(pcm, mic)
 
     # ---- VAD 모드 ----
-    def listen_vad(self, vad, continue_vad, silence_ms: int = 1200, timeout_s: float = 15.0) -> CommandResult | None:
+    def listen_vad(
+        self, vad, continue_vad, silence_ms: int = 1200, timeout_s: float = 15.0
+    ) -> CommandResult | None:
         """말소리 자동 감지 녹음 후 인식. 타임아웃이면 None."""
         log(f"\n[대기] 말씀하세요... ({timeout_s:g}초 동안 말이 없으면 타임아웃)")
         mic = self.mic
         with closing(mic.frames(self.frame_ms)) as frames:
-            pcm = record_utterance(frames, vad, self.frame_ms, silence_ms, timeout_s,
-                                   self.max_record_s, continue_vad)
+            pcm = record_utterance(
+                frames, vad, self.frame_ms, silence_ms, timeout_s, self.max_record_s, continue_vad
+            )
         if pcm is None:
             log(f"[타임아웃] {timeout_s:g}초 동안 말소리가 감지되지 않았습니다.")
             if mic.peak == 0:
-                log("[안내] 마이크 입력이 완전히 0(무음)입니다. 음소거되었거나 마이크 권한이 막혀 있을 수 있습니다.\n"
-                    + mic_help())
+                log(
+                    "[안내] 마이크 입력이 완전히 0(무음)입니다. 음소거되었거나 마이크 권한이 막혀 있을 수 있습니다.\n"
+                    + mic_help()
+                )
             return None
         return self._finish(pcm, mic)
 
-    def listen_auto(self, vad_level: int = 2, silence_ms: int = 1200, vad=None, continue_vad=None,
-                    chunk_s: float = 30.0) -> CommandResult:
+    def listen_auto(
+        self, vad_level: int = 2, silence_ms: int = 1200, vad=None, continue_vad=None, chunk_s: float = 30.0
+    ) -> CommandResult:
         """Enter 없이: 말소리가 들리면 자동 녹음 → 인식. 말이 없으면 조용히 계속 기다린다.
 
         기다리는 동안에도 p/s/q + Enter 키보드 입력을 받는다 (키가 우선).
@@ -799,12 +887,19 @@ class VoiceCommander:
                             return
                 yield f
 
-        log(f"\n[대기] 말씀하세요 (\"물 따라줘\")  |  {KEY_HINT}")
+        log(f'\n[대기] 말씀하세요 ("물 따라줘")  |  {KEY_HINT}')
         mic = self.mic
         while True:
             with closing(mic.frames(self.frame_ms)) as frames:
-                pcm = record_utterance(frames_with_keys(frames), vad, self.frame_ms, silence_ms, chunk_s,
-                                       self.max_record_s, continue_vad)
+                pcm = record_utterance(
+                    frames_with_keys(frames),
+                    vad,
+                    self.frame_ms,
+                    silence_ms,
+                    chunk_s,
+                    self.max_record_s,
+                    continue_vad,
+                )
             if key:
                 _, cmd = parse_enter_input(key[0])
                 log(f"[키보드] {key[0]!r} -> {cmd}")
@@ -824,9 +919,9 @@ class VoiceCommander:
             if mic.peak == 0:
                 log("[안내] 마이크 입력이 완전히 0(무음)입니다.\n" + mic_help())
         else:
-            log(f"[인식] \"{r.text}\"  ({r.stt_s:.1f}s)")
+            log(f'[인식] "{r.text}"  ({r.stt_s:.1f}s)')
         if r.command is None:
-            log(f"[안내] 명령을 찾지 못했습니다. 예: \"물 따라줘\", \"멈춰\". {KEY_HINT}")
+            log(f'[안내] 명령을 찾지 못했습니다. 예: "물 따라줘", "멈춰". {KEY_HINT}')
         else:
             log(f"[명령] {r.command}")
         return r
@@ -844,25 +939,42 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="음성 명령 인식: 음성 -> 텍스트(Whisper, ko) -> 명령(pour/stop) -> command.json",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--mode", default="enter", choices=("enter", "vad"),
-                   help="enter: Enter로 녹음 시작/종료 (시연 권장), vad: 말소리 자동 감지")
+    p.add_argument(
+        "--mode",
+        default="enter",
+        choices=("enter", "vad"),
+        help="enter: Enter로 녹음 시작/종료 (시연 권장), vad: 말소리 자동 감지",
+    )
     p.add_argument("--wav", type=Path, nargs="+", default=None, help="마이크 대신 wav 파일들을 인식")
     p.add_argument("--model", default="small", help="Whisper 모델 크기 (tiny/base/small/medium/large/turbo)")
     p.add_argument("--stt-device", default="auto", choices=("auto", "cpu", "cuda"), help="Whisper 실행 장치")
     p.add_argument("--initial-prompt", default=INITIAL_PROMPT, help="Whisper 어휘 힌트 ('' = 사용 안 함)")
-    p.add_argument("--sample-len", type=int, default=SAMPLE_LEN, help="Whisper 생성 토큰 상한 (0 = Whisper 기본 224)")
-    p.add_argument("--threads", type=int, default=None, help="Whisper 변환 때 torch CPU 스레드 수 (기본: torch 기본)")
+    p.add_argument(
+        "--sample-len", type=int, default=SAMPLE_LEN, help="Whisper 생성 토큰 상한 (0 = Whisper 기본 224)"
+    )
+    p.add_argument(
+        "--threads", type=int, default=None, help="Whisper 변환 때 torch CPU 스레드 수 (기본: torch 기본)"
+    )
     p.add_argument("--once", action="store_true", help="한 번만 인식하고 종료 (기본: 반복)")
     p.add_argument("--max-record-s", type=float, default=10.0, help="최대 녹음 길이(초)")
     p.add_argument("--silence-ms", type=int, default=1200, help="[vad] 이 시간(ms) 무음이면 녹음 종료")
-    p.add_argument("--vad-aggressiveness", type=int, default=2, choices=range(4),
-                   help="[vad] 민감도 0(관대)~3(엄격). 시끄러우면 높이세요")
+    p.add_argument(
+        "--vad-aggressiveness",
+        type=int,
+        default=2,
+        choices=range(4),
+        help="[vad] 민감도 0(관대)~3(엄격). 시끄러우면 높이세요",
+    )
     p.add_argument("--timeout", type=float, default=15.0, help="[vad] 말소리가 없을 때 대기 시간(초)")
     p.add_argument("--frame-ms", type=int, default=30, choices=(10, 20, 30), help="오디오 프레임 길이(ms)")
-    p.add_argument("--mic", type=parse_device, default=None, help="입력 장치 번호 또는 이름 일부 (기본: 시스템 기본)")
+    p.add_argument(
+        "--mic", type=parse_device, default=None, help="입력 장치 번호 또는 이름 일부 (기본: 시스템 기본)"
+    )
     p.add_argument("--list-devices", action="store_true", help="오디오 장치 목록 출력 후 종료")
     p.add_argument("--output", type=Path, default=OUT_DIR / "command.json", help="결과 JSON 경로")
-    p.add_argument("--save-wav", type=Path, default=None, help="마지막 녹음을 wav로 저장 (디버깅/테스트 클립 수집)")
+    p.add_argument(
+        "--save-wav", type=Path, default=None, help="마지막 녹음을 wav로 저장 (디버깅/테스트 클립 수집)"
+    )
     args = p.parse_args(argv)
     if args.silence_ms <= 0 or args.timeout <= 0 or args.max_record_s <= 0:
         p.error("--silence-ms, --timeout, --max-record-s 는 0보다 커야 합니다")
@@ -879,7 +991,7 @@ def run_wav(args, vc: VoiceCommander) -> int:
     code = EXIT_OK
     for path in args.wav:
         r = vc.transcribe_file(path)
-        log(f"[{path.name}] \"{r.text}\" -> {r.command}  ({r.duration_s:.1f}s 음성, STT {r.stt_s:.2f}s)")
+        log(f'[{path.name}] "{r.text}" -> {r.command}  ({r.duration_s:.1f}s 음성, STT {r.stt_s:.2f}s)')
         save_command(args.output, r)
         code = max(code, exit_code(r))
     log(f"[저장] {args.output}")
@@ -901,14 +1013,26 @@ def main(argv: list[str] | None = None) -> int:
                 vad = webrtcvad.Vad(args.vad_aggressiveness)  # 녹음 시작: 엄격히
                 continue_vad = webrtcvad.Vad(max(0, args.vad_aggressiveness - 1))  # 녹음 유지: 관대히
             mic = open_microphone(args.mic)  # 모델 로딩 전에 마이크 문제부터 빨리 알려준다
-        vc = VoiceCommander(args.model, args.stt_device, args.mic, args.max_record_s,
-                            args.initial_prompt, frame_ms=args.frame_ms, save_wav_path=args.save_wav,
-                            sample_len=args.sample_len or None, num_threads=args.threads)
+        vc = VoiceCommander(
+            args.model,
+            args.stt_device,
+            args.mic,
+            args.max_record_s,
+            args.initial_prompt,
+            frame_ms=args.frame_ms,
+            save_wav_path=args.save_wav,
+            sample_len=args.sample_len or None,
+            num_threads=args.threads,
+        )
         if args.wav is not None:
             return run_wav(args, vc)
         vc._mic = mic
         while True:
-            r = vc.listen() if args.mode == "enter" else vc.listen_vad(vad, continue_vad, args.silence_ms, args.timeout)
+            r = (
+                vc.listen()
+                if args.mode == "enter"
+                else vc.listen_vad(vad, continue_vad, args.silence_ms, args.timeout)
+            )
             if r is not None and r.command == QUIT:
                 log("[종료] q")
                 return EXIT_OK

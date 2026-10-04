@@ -46,7 +46,6 @@ C_DEMO, C_MODEL, C_TILT, C_RET = "#2a78d6", "#eb6834", "#e34948", "#1baf7a"
 
 def load_policy(model: str, device: str):
     from huggingface_hub import snapshot_download
-
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.policies import get_policy_class, make_pre_post_processors
 
@@ -55,7 +54,8 @@ def load_policy(model: str, device: str):
     cfg.device, cfg.pretrained_path = device, path
     policy = get_policy_class(cfg.type).from_pretrained(path, config=cfg).to(device).eval()
     pre, post = make_pre_post_processors(
-        cfg, pretrained_path=path,
+        cfg,
+        pretrained_path=path,
         preprocessor_overrides={"device_processor": {"device": device}},
         postprocessor_overrides={"device_processor": {"device": "cpu"}},
     )
@@ -84,8 +84,12 @@ def main():
     ap.add_argument("--episodes", type=int, nargs="*", default=None)
     ap.add_argument("--stride", type=int, default=None, help="재추론 간격 (기본: 모델 n_action_steps)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    ap.add_argument("--thresholds", type=Path, default=THRESHOLDS,
-                    help="완료 감지 임계값 (joint_analysis.py --install 로 갱신)")
+    ap.add_argument(
+        "--thresholds",
+        type=Path,
+        default=THRESHOLDS,
+        help="완료 감지 임계값 (joint_analysis.py --install 로 갱신)",
+    )
     ap.add_argument("--out", type=Path, default=OUTPUTS / "offline_model")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -94,8 +98,13 @@ def main():
     from lerobot.policies.utils import prepare_observation_for_inference
 
     th = json.loads(args.thresholds.read_text())
-    det_cfg = PourDetectorConfig(tilt_off=th["tilt_off"], return_off=th["return_off"], hold=th["hold"],
-                                 base_frames=th["base_frames"], sign=th["sign"])
+    det_cfg = PourDetectorConfig(
+        tilt_off=th["tilt_off"],
+        return_off=th["return_off"],
+        hold=th["hold"],
+        base_frames=th["base_frames"],
+        sign=th["sign"],
+    )
 
     ds = LeRobotDataset(args.dataset.name, root=args.dataset, return_uint8=True)
     names = ds.meta.features["action"]["names"]
@@ -104,7 +113,9 @@ def main():
     stride = args.stride or cfg.n_action_steps
     assert stride <= cfg.n_action_steps
     eps = args.episodes if args.episodes is not None else list(range(ds.meta.total_episodes))
-    print(f"device={args.device} chunk={cfg.chunk_size} stride={stride} episodes={len(eps)} joint={names[ji]}")
+    print(
+        f"device={args.device} chunk={cfg.chunk_size} stride={stride} episodes={len(eps)} joint={names[ji]}"
+    )
 
     rows, store = [], {}
     t0 = time.time()
@@ -119,11 +130,12 @@ def main():
             item = ds[lo + k]
             assert int(item["episode_index"]) == e and int(item["frame_index"]) == k
             with torch.inference_mode():
-                b = prepare_observation_for_inference(obs_from_item(item), torch.device(args.device),
-                                                      item["task"], ds.meta.robot_type)
+                b = prepare_observation_for_inference(
+                    obs_from_item(item), torch.device(args.device), item["task"], ds.meta.robot_type
+                )
                 chunk = post(policy.predict_action_chunk(pre(b)))[0, :stride].numpy()
             n = min(stride, L - k)
-            pred[k:k + n] = chunk[:n]
+            pred[k : k + n] = chunk[:n]
             if k > 0:
                 jumps.append(np.abs(pred[k] - pred[k - 1]))
         store[e] = (demo, pred)
@@ -131,40 +143,58 @@ def main():
         dd = PourDetector(det_cfg).run(demo[:, ji])
         dm = PourDetector(det_cfg).run(pred[:, ji])
         jumps = np.stack(jumps) if jumps else np.zeros((1, demo.shape[1]))
-        rows.append(dict(
-            episode=e, len_s=L / FPS,
-            mae_all=float(np.abs(pred - demo).mean()), mae_roll=float(np.abs(pred[:, ji] - demo[:, ji]).mean()),
-            demo_done_t=dd.done_step / FPS if dd.state == DONE else None,
-            model_detected=dm.state == DONE, model_final_state=dm.state,
-            model_tilt_t=dm.tilt_step / FPS if dm.tilt_step is not None else None,
-            model_done_t=dm.done_step / FPS if dm.state == DONE else None,
-            model_roll_peak_dev=float(det_cfg.sign * (pred[:, ji] - dm.baseline).max()),
-            chunk_jump_max=float(jumps.max()), chunk_jump_roll_max=float(jumps[:, ji].max()),
-        ))
+        rows.append(
+            dict(
+                episode=e,
+                len_s=L / FPS,
+                mae_all=float(np.abs(pred - demo).mean()),
+                mae_roll=float(np.abs(pred[:, ji] - demo[:, ji]).mean()),
+                demo_done_t=dd.done_step / FPS if dd.state == DONE else None,
+                model_detected=dm.state == DONE,
+                model_final_state=dm.state,
+                model_tilt_t=dm.tilt_step / FPS if dm.tilt_step is not None else None,
+                model_done_t=dm.done_step / FPS if dm.state == DONE else None,
+                model_roll_peak_dev=float(det_cfg.sign * (pred[:, ji] - dm.baseline).max()),
+                chunk_jump_max=float(jumps.max()),
+                chunk_jump_roll_max=float(jumps[:, ji].max()),
+            )
+        )
         el = time.time() - t0
-        print(f"  ep{e:3d} {L:5d}f  MAE {rows[-1]['mae_all']:5.2f}  roll MAE {rows[-1]['mae_roll']:5.2f}  "
-              f"감지 {dm.state:7s}  [{n_done + 1}/{len(eps)} {el:5.0f}s, 남은 ~{el / (n_done + 1) * (len(eps) - n_done - 1):4.0f}s]",
-              flush=True)
+        print(
+            f"  ep{e:3d} {L:5d}f  MAE {rows[-1]['mae_all']:5.2f}  roll MAE {rows[-1]['mae_roll']:5.2f}  "
+            f"감지 {dm.state:7s}  [{n_done + 1}/{len(eps)} {el:5.0f}s, 남은 ~{el / (n_done + 1) * (len(eps) - n_done - 1):4.0f}s]",
+            flush=True,
+        )
 
     r = pd.DataFrame(rows)
     r["done_diff_s"] = r["model_done_t"] - r["demo_done_t"]
     r.to_csv(args.out / f"offline_stride{stride}.csv", index=False)
-    np.savez_compressed(args.out / f"actions_stride{stride}.npz",
-                        **{f"ep{e}_demo": d for e, (d, p) in store.items()},
-                        **{f"ep{e}_model": p for e, (d, p) in store.items()}, names=np.array(names))
+    np.savez_compressed(
+        args.out / f"actions_stride{stride}.npz",
+        **{f"ep{e}_demo": d for e, (d, p) in store.items()},
+        **{f"ep{e}_model": p for e, (d, p) in store.items()},
+        names=np.array(names),
+    )
 
     d = r[r.model_detected]
     print(f"\n[결과 · open-loop · stride {stride}]")
     print(f"  모델 명령 기준 감지율: {len(d)}/{len(r)}")
     if len(r) - len(d):
-        print("  미감지:", r[~r.model_detected][["episode", "model_final_state", "model_roll_peak_dev"]].to_dict("records"))
+        print(
+            "  미감지:",
+            r[~r.model_detected][["episode", "model_final_state", "model_roll_peak_dev"]].to_dict("records"),
+        )
     print(f"  action MAE (12관절 평균): 중앙 {r.mae_all.median():.2f}, 최대 {r.mae_all.max():.2f}")
     print(f"  {names[ji]} MAE: 중앙 {r.mae_roll.median():.2f}, 최대 {r.mae_roll.max():.2f}")
     if len(d):
         q = d.done_diff_s.abs().quantile([0.5, 0.9, 1]).values
         print(f"  DONE 시점 차이 |모델-시연| (s): 중앙 {q[0]:.2f}, p90 {q[1]:.2f}, 최대 {q[2]:.2f}")
-    print(f"  청크 경계 점프 (12관절 최대): 중앙 {r.chunk_jump_max.median():.1f}, 최대 {r.chunk_jump_max.max():.1f}")
-    print(f"  청크 경계 점프 ({names[ji]}): 중앙 {r.chunk_jump_roll_max.median():.1f}, 최대 {r.chunk_jump_roll_max.max():.1f}")
+    print(
+        f"  청크 경계 점프 (12관절 최대): 중앙 {r.chunk_jump_max.median():.1f}, 최대 {r.chunk_jump_max.max():.1f}"
+    )
+    print(
+        f"  청크 경계 점프 ({names[ji]}): 중앙 {r.chunk_jump_roll_max.median():.1f}, 최대 {r.chunk_jump_roll_max.max():.1f}"
+    )
 
     # ---- 그림 1: wrist_roll 시연 vs 모델, 에피소드별 ----
     nc = 10 if len(eps) > 10 else len(eps)
@@ -182,13 +212,22 @@ def main():
         row = rr.loc[e]
         if row.model_detected:
             ax.axvline(row.model_done_t, color=INK, lw=0.8)
-        ax.set_title(f"ep{e}" + ("" if row.model_detected else " 미감지"), fontsize=7, pad=2,
-                     color=INK if row.model_detected else C_TILT)
+        ax.set_title(
+            f"ep{e}" + ("" if row.model_detected else " 미감지"),
+            fontsize=7,
+            pad=2,
+            color=INK if row.model_detected else C_TILT,
+        )
         style(ax)
-    for ax in list(axs.flat)[len(eps):]:
+    for ax in list(axs.flat)[len(eps) :]:
         ax.axis("off")
-    fig.suptitle(f"{names[ji]} · 파랑 시연 action / 주황 모델 action (open-loop, stride {stride}) · 검정 세로선 모델 DONE",
-                 x=0.01, ha="left", color=INK, fontsize=11)
+    fig.suptitle(
+        f"{names[ji]} · 파랑 시연 action / 주황 모델 action (open-loop, stride {stride}) · 검정 세로선 모델 DONE",
+        x=0.01,
+        ha="left",
+        color=INK,
+        fontsize=11,
+    )
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     fig.savefig(args.out / f"wrist_roll_model_vs_demo_stride{stride}.png", dpi=90)
     plt.close(fig)
@@ -207,8 +246,12 @@ def main():
                 ax.axvline(k / FPS, color=GRID, lw=0.6)
             ax.set_title(names[j], fontsize=9, loc="left", color=INK)
             style(ax)
-        fig.suptitle(f"ep{e} ({tag} MAE {rr.loc[e].mae_all:.2f}) · 파랑 시연 / 주황 모델 · 회색 세로선 = 청크 경계",
-                     x=0.01, ha="left", color=INK)
+        fig.suptitle(
+            f"ep{e} ({tag} MAE {rr.loc[e].mae_all:.2f}) · 파랑 시연 / 주황 모델 · 회색 세로선 = 청크 경계",
+            x=0.01,
+            ha="left",
+            color=INK,
+        )
         fig.tight_layout()
         fig.savefig(args.out / f"joints_ep{e}_{tag}_stride{stride}.png", dpi=90)
         plt.close(fig)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 데스크톱 학습 결과의 체크포인트 하나(pretrained_model 만, ~200MB)를 노트북으로 가져오고 검증 명령을 출력.
 #
-#   DESKTOP=user@desktop-tailscale-name bash pac2026/train/fetch_checkpoint.sh <원격 run 폴더> [step|last|list]
+#   DESKTOP=user@desktop-tailscale-name bash train/fetch_checkpoint.sh <원격 run 폴더> [step|last|list]
 #
 #   <원격 run 폴더> : train.sh 의 OUT (예: '~/UNITA_PAC2026/local/train/act_pour_finetune_1004_1340')
 #                     ~ 는 원격에서 풀리도록 따옴표로 감쌀 것
@@ -22,6 +22,7 @@ DATASET=${DATASET:-$HOME/.cache/huggingface/lerobot/UNITAmanipulation/bi_so101_p
 RUN=${RUN%/}
 
 remote() {  # 원격(또는 local) 에서 명령 실행. 경로의 ~ 가 원격 쪽에서 풀리도록 문자열로 넘김
+    # shellcheck disable=SC2029
     if [[ "$DESKTOP" == "local" ]]; then bash -c "$1"; else ssh "$DESKTOP" "$1"; fi
 }
 

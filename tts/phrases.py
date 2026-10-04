@@ -50,7 +50,8 @@ def load_phrases(path: str | Path) -> tuple[dict[str, str], frozenset[str]]:
     else:
         raise ValueError(f"문구 파일은 .json 또는 .py 여야 합니다: {path}")
     if not isinstance(phrases, dict) or not all(
-            isinstance(k, str) and isinstance(v, str) for k, v in phrases.items()):
+        isinstance(k, str) and isinstance(v, str) for k, v in phrases.items()
+    ):
         raise ValueError(f"{path}: 문구는 {{키: 문장}} 문자열 딕셔너리여야 합니다")
     bad = [k for k in phrases if not k or "/" in k or k.startswith(".")]
     if bad:
@@ -60,6 +61,8 @@ def load_phrases(path: str | Path) -> tuple[dict[str, str], frozenset[str]]:
 
 def save_manifest(wav_dir: str | Path, phrases: dict[str, str], critical=()) -> Path:
     path = Path(wav_dir) / MANIFEST
-    path.write_text(json.dumps({"phrases": phrases, "critical": sorted(critical)},
-                               ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps({"phrases": phrases, "critical": sorted(critical)}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return path

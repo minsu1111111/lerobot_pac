@@ -20,12 +20,24 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from mujoco_bi_so101 import GRIP_CLOSE, GRIP_OPEN, KP_DEFAULT, NAMES, MujocoBiSO101, lerobot_to_qpos, qpos_to_lerobot  # noqa: E402
+from mujoco_bi_so101 import (  # noqa: E402
+    GRIP_CLOSE,
+    GRIP_OPEN,
+    KP_DEFAULT,
+    NAMES,
+    MujocoBiSO101,
+    lerobot_to_qpos,
+    qpos_to_lerobot,
+)
 from sim_paths import local_root, outputs_dir  # noqa: E402
 
-DATASET_DEFAULT = Path.home() / ".cache/huggingface/lerobot/UNITAmanipulation/bi_so101_pour_water_20260920_194823"
+DATASET_DEFAULT = (
+    Path.home() / ".cache/huggingface/lerobot/UNITAmanipulation/bi_so101_pour_water_20260920_194823"
+)
 _LR = local_root()
-NPZ_DEFAULT = _LR / "outputs" / "offline_model" / "actions_stride100.npz" if _LR else None  # UNITA offline_check.py 출력
+NPZ_DEFAULT = (
+    _LR / "outputs" / "offline_model" / "actions_stride100.npz" if _LR else None
+)  # UNITA offline_check.py 출력
 OUT_DIR = outputs_dir()
 FPS = 30
 RWR = NAMES.index("right_wrist_roll")
@@ -76,7 +88,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", choices=["dataset", "npz"], default="dataset")
     ap.add_argument("--episode", type=int, default=0)
-    ap.add_argument("--dataset", type=Path, default=DATASET_DEFAULT, help="LeRobot 데이터셋 폴더 (source=dataset)")
+    ap.add_argument(
+        "--dataset", type=Path, default=DATASET_DEFAULT, help="LeRobot 데이터셋 폴더 (source=dataset)"
+    )
     ap.add_argument("--field", choices=["action", "observation.state"], default="action")
     ap.add_argument("--file", type=Path, default=NPZ_DEFAULT, help="모델 출력 npz (source=npz)")
     ap.add_argument("--which", choices=["demo", "model", "both"], default="both")
@@ -88,7 +102,9 @@ def main():
     ap.add_argument("--yaw", type=float, default=30.0, help="두 팔 안쪽 회전 (deg)")
     ap.add_argument("--no-props", action="store_true", help="컵·물통 모형 끄기")
     ap.add_argument("--stills", default="", help="'auto' 또는 프레임 번호 목록 '0,360,1317'")
-    ap.add_argument("--kp", type=float, default=KP_DEFAULT, help="물리 모드 액추에이터 kp (998.22 = MJCF 원래 값)")
+    ap.add_argument(
+        "--kp", type=float, default=KP_DEFAULT, help="물리 모드 액추에이터 kp (998.22 = MJCF 원래 값)"
+    )
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=None)
     ap.add_argument("--out", type=Path, default=None, help="mp4 경로 (기본: <out-dir>/<tag>.mp4)")
@@ -130,12 +146,22 @@ def main():
     elif a.stills:
         stills = {int(s): "" for s in a.stills.split(",")}
 
-    sim = MujocoBiSO101(render="window" if a.window else ("offscreen" if (video or stills) else "none"),
-                        video_path=video, fps=FPS, physics=a.physics, spacing=a.spacing,
-                        ghost=ghost is not None, props=not a.no_props, camera=a.camera, kp=a.kp, yaw_deg=a.yaw)
+    sim = MujocoBiSO101(
+        render="window" if a.window else ("offscreen" if (video or stills) else "none"),
+        video_path=video,
+        fps=FPS,
+        physics=a.physics,
+        spacing=a.spacing,
+        ghost=ghost is not None,
+        props=not a.no_props,
+        camera=a.camera,
+        kp=a.kp,
+        yaw_deg=a.yaw,
+    )
     sim.place_props_from_trajectory(traj)
     if ghost is not None:
         sim.set_ghost(ghost[0])
+
     def save_still(t):
         if t in stills and sim.renderer is not None:
             from PIL import Image
@@ -166,7 +192,9 @@ def main():
     if a.physics:  # 추종오차: 시뮬 상태(t) vs 명령(t) / vs 실제 기록 상태(t)
         S = np.array(sim_states)
         n = len(S)
-        cmd = np.array([qpos_to_lerobot(lerobot_to_qpos(x, sim.m)) for x in traj[:n]])  # MJCF 범위로 잘린 명령
+        cmd = np.array(
+            [qpos_to_lerobot(lerobot_to_qpos(x, sim.m)) for x in traj[:n]]
+        )  # MJCF 범위로 잘린 명령
         rep = {"cmd": np.abs(S[1:] - cmd[1:]), "clip": np.abs(cmd[1:] - traj[1:n])}
         if obs is not None:
             rep["real_state"] = np.abs(S[1:] - obs[1:n])
@@ -175,7 +203,10 @@ def main():
         print(f"\n추종오차 (deg, gripper 는 0-100) — {n} 프레임")
         print(f"{'joint':20s}" + "".join(f"{k + ' mean/p95/max':>31s}" for k in rep))
         for j, name in enumerate(NAMES):
-            row = {k: [float(v[:, j].mean()), float(np.percentile(v[:, j], 95)), float(v[:, j].max())] for k, v in rep.items()}
+            row = {
+                k: [float(v[:, j].mean()), float(np.percentile(v[:, j], 95)), float(v[:, j].max())]
+                for k, v in rep.items()
+            }
             summary[name] = row
             print(f"{name:20s}" + "".join(f"{r[0]:10.2f}{r[1]:10.2f}{r[2]:10.2f}" for r in row.values()))
         jp = out_dir / f"{tag}_tracking.json"

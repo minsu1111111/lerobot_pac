@@ -71,8 +71,9 @@ def decode_mono(mp3: bytes, sr: int = SR) -> np.ndarray:
     return np.concatenate(out).astype(np.float32)
 
 
-def postprocess(x: np.ndarray, sr: int = SR, thr_db: float = -40.0, rms_db: float = -15.0,
-                peak_db: float = -1.0) -> np.ndarray:
+def postprocess(
+    x: np.ndarray, sr: int = SR, thr_db: float = -40.0, rms_db: float = -15.0, peak_db: float = -1.0
+) -> np.ndarray:
     peak = np.abs(x).max()
     if peak == 0:
         return x
@@ -106,13 +107,16 @@ def write_wav(path: Path, x: np.ndarray, sr: int = SR):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="edge-tts 로 문구 wav 생성")
     ap.add_argument("--keys", nargs="*", default=None, help="일부 키만 (기본: 전체)")
-    ap.add_argument("--voice", default="ko-KR-SunHiNeural",
-                    help="edge-tts 음성 (목록: edge-tts --list-voices)")
+    ap.add_argument(
+        "--voice", default="ko-KR-SunHiNeural", help="edge-tts 음성 (목록: edge-tts --list-voices)"
+    )
     ap.add_argument("--rate", default="+0%", help="말 속도, 예: +10%%, -5%%")
-    ap.add_argument("--phrases", type=Path, default=None,
-                    help="문구 파일 .json/.py (기본: phrases.py 의 PHRASES)")
-    ap.add_argument("--out", type=Path, default=None,
-                    help="출력 폴더 (기본: wavs/. --phrases 를 주면 반드시 지정)")
+    ap.add_argument(
+        "--phrases", type=Path, default=None, help="문구 파일 .json/.py (기본: phrases.py 의 PHRASES)"
+    )
+    ap.add_argument(
+        "--out", type=Path, default=None, help="출력 폴더 (기본: wavs/. --phrases 를 주면 반드시 지정)"
+    )
     args = ap.parse_args(argv)
 
     if args.phrases is not None:
@@ -135,8 +139,10 @@ def main(argv=None):
         x = postprocess(decode_mono(asyncio.run(synth_mp3(text, args.voice, args.rate))))
         path = out / f"{key}.wav"
         write_wav(path, x)
-        print(f"{key:8s} {len(x) / SR:5.2f}s  peak {20 * np.log10(np.abs(x).max()):5.1f} dBFS  "
-              f"{path.stat().st_size / 1024:5.1f} KB  {text}")
+        print(
+            f"{key:8s} {len(x) / SR:5.2f}s  peak {20 * np.log10(np.abs(x).max()):5.1f} dBFS  "
+            f"{path.stat().st_size / 1024:5.1f} KB  {text}"
+        )
 
 
 if __name__ == "__main__":

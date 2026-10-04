@@ -5,15 +5,15 @@
 
 | # | 할 일 | 언제 | 문서 |
 |---|---|---|---|
-| 1 | 학습 파이프라인 리허설 (전송 → 학습 → 체크포인트 검증) | 화 | [`train/README.md`](train/README.md) |
+| 1 | 학습 파이프라인 리허설 (전송 → 학습 → 체크포인트 검증) | 화 | [`train/README.md`](../train/README.md) |
 | 2 | 1060 노트북 GPU 확인 | 접근 가능할 때 | 아래 |
-| 3 | 새 그리퍼 + 손목 카메라 확인 (초점·해상도·컵 수위) | 월 | [`tools/CAMERA_CHECK.md`](tools/CAMERA_CHECK.md) |
+| 3 | 새 그리퍼 + 손목 카메라 확인 (초점·해상도·컵 수위) | 월 | [`tools/CAMERA_CHECK.md`](../tools/CAMERA_CHECK.md) |
 | 4 | 녹화 명령 확인 (`lerobot-record`, 양팔 리더-팔로워) | 월 | 아래 |
 | 5 | STT 실제 목소리 시험 | 화·수 | 아래 |
 
 로봇 설정은 하나의 파일로 롤아웃·녹화가 같이 쓴다:
-`cp pac2026/rollout/robot.env.example ~/UNITA_PAC2026/local/robot.env` 후 포트·카메라 경로를 채운다
-(카메라 경로는 `python pac2026/tools/camera_check.py list`).
+`cp rollout/robot.env.example ~/UNITA_PAC2026/local/robot.env` 후 포트·카메라 경로를 채운다
+(카메라 경로는 `python tools/camera_check.py list`).
 
 ---
 
@@ -24,9 +24,9 @@ CUDA 13 빌드(`+cu130`)와 CUDA 12.8·12.9 빌드는 Pascal 을 지원하지 �
 드라이버 535(CUDA 12.2)에서도 CUDA 12.x 빌드는 동작한다(같은 12.x 안의 호환).
 
 ```bash
-cd ~/lerobot
+cd ~/UNITA_PAC2026/lerobot_pac
 python -c "import torch;print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')"
-python pac2026/tools/offline_check.py --block-network
+python tools/offline_check.py --block-network
 ```
 
 - `+cu126` 이고 `True GeForce GTX 1060` 이면 통과.
@@ -50,9 +50,9 @@ pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytor
 양팔 id 이름으로 자동 복사하고, 카메라는 학습 데이터와 같은 해상도(top 640×480, 손목 320×240, 30 fps)로 연다.
 
 ```bash
-cd ~/lerobot
-DRY_RUN=1 REPO_ID=UNITAmanipulation/pour_test bash pac2026/train/record.sh          # 명령만 확인
-REPO_ID=UNITAmanipulation/pour_test NUM=2 EP_S=40 bash pac2026/train/record.sh       # 2개만 시험 녹화
+cd ~/UNITA_PAC2026/lerobot_pac
+DRY_RUN=1 REPO_ID=UNITAmanipulation/pour_test bash train/record.sh          # 명령만 확인
+REPO_ID=UNITAmanipulation/pour_test NUM=2 EP_S=40 bash train/record.sh       # 2개만 시험 녹화
 ```
 
 - 녹화 중 키: → 다음 에피소드(일찍 끝내기), ← 방금 것 다시 녹화, Esc 중단.
@@ -65,7 +65,7 @@ REPO_ID=UNITAmanipulation/pour_test NUM=2 EP_S=40 bash pac2026/train/record.sh  
 녹음은 시연과 같은 마이크, 같은 녹음 코드로 한다. 사람당 약 10분.
 
 ```bash
-cd ~/lerobot/pac2026
+cd ~/UNITA_PAC2026/lerobot_pac
 python stt/voice_command.py --list-devices                          # 마이크 번호 확인
 python stt/record_clips.py --speaker 이름 --condition quiet         # 조용할 때 18문장
 python stt/record_clips.py --speaker 이름 --condition noisy         # 시끄러울 때 (음악·말소리 틀어 놓고)

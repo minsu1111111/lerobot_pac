@@ -43,12 +43,20 @@ def load(ds: Path):
     names = info["features"]["observation.state"]["names"]
     files = sorted(glob.glob(str(ds / "data/*/*.parquet")))
     df = pd.concat(
-        [pd.read_parquet(f, columns=["index", "episode_index", "frame_index", "observation.state", "action"]) for f in files]
+        [
+            pd.read_parquet(
+                f, columns=["index", "episode_index", "frame_index", "observation.state", "action"]
+            )
+            for f in files
+        ]
     ).sort_values("index")
     eps = {}
     for e, g in df.groupby("episode_index", sort=True):
         assert (np.diff(g["frame_index"].values) == 1).all(), f"ep{e}: frame_index 불연속"
-        eps[int(e)] = {"state": np.stack(g["observation.state"].values), "action": np.stack(g["action"].values)}
+        eps[int(e)] = {
+            "state": np.stack(g["observation.state"].values),
+            "action": np.stack(g["action"].values),
+        }
     return info, names, eps
 
 
@@ -76,7 +84,9 @@ def main():
     ap.add_argument("--hold", type=int, default=5)
     ap.add_argument("--base-sec", type=float, default=1.0)
     ap.add_argument("--out", type=Path, default=OUTPUTS / "joint_analysis")
-    ap.add_argument("--install", action="store_true", help=f"결과 임계값을 롤아웃 기본값({THRESHOLDS.name})으로 저장")
+    ap.add_argument(
+        "--install", action="store_true", help=f"결과 임계값을 롤아웃 기본값({THRESHOLDS.name})으로 저장"
+    )
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     base_n = int(args.base_sec * FPS)
@@ -84,10 +94,14 @@ def main():
     info, names, eps = load(args.dataset)
     assert info["fps"] == FPS
     ji = names.index(args.joint)
-    print(f"dataset: {len(eps)} eps, {sum(len(v['state']) for v in eps.values())} frames, joint={args.joint} (idx {ji})")
+    print(
+        f"dataset: {len(eps)} eps, {sum(len(v['state']) for v in eps.values())} frames, joint={args.joint} (idx {ji})"
+    )
 
     # ---- 1) 관절 선택 근거: 오른팔 6관절 진폭 / 큰 움직임 횟수 ----
-    print("\n[관절 비교] 기준선=처음 %.1fs 중앙값, 진폭=|편차| 최대, 횟수=|편차|>진폭50%% 구간 수" % args.base_sec)
+    print(
+        f"\n[관절 비교] 기준선=처음 {args.base_sec:.1f}s 중앙값, 진폭=|편차| 최대, 횟수=|편차|>진폭50% 구간 수"
+    )
     print(f"{'joint':16s} {'진폭 중앙값':>10s} {'횟수=1 비율':>11s} {'횟수 중앙값':>10s}")
     joint_rows = []
     for j, n in enumerate(JOINTS):
@@ -109,7 +123,9 @@ def main():
             x = v["state"][:, 6 + j]
             ax.plot(np.arange(len(x)) / FPS, x, lw=0.6, color=C_STATE, alpha=0.12)
         r = joint_rows[j]
-        ax.set_title(f"right_{n}   진폭 {r[1]:.0f} · 큰 움직임 1회 {r[2]:.0%}", fontsize=10, color=INK, loc="left")
+        ax.set_title(
+            f"right_{n}   진폭 {r[1]:.0f} · 큰 움직임 1회 {r[2]:.0%}", fontsize=10, color=INK, loc="left"
+        )
         style(ax)
     for ax in axs[-1]:
         ax.set_xlabel("시간 (s)", color=INK2)
@@ -133,12 +149,20 @@ def main():
     bases = np.array([p["base"] for p in per.values()])
     print(f"\n[임계값] sign={sign:+.0f}  진폭(에피소드별 최대편차의 중앙값)={amp:.1f}")
     print(f"  기준선: 중앙값 {np.median(bases):.1f}, 범위 {bases.min():.1f} ~ {bases.max():.1f}")
-    print(f"  에피소드별 최대편차: 최소 {(sign * peak_devs).min():.1f}, p5 {np.percentile(sign * peak_devs, 5):.1f}, 최대 {(sign * peak_devs).max():.1f}")
-    print(f"  tilt_off   = {args.tilt_frac:.2f} x {amp:.1f} = {tilt_off:.1f}  (절대값 환산 ≈ {np.median(bases) + sign * tilt_off:.1f})")
-    print(f"  return_off = {args.return_frac:.2f} x {amp:.1f} = {return_off:.1f}  (절대값 환산 ≈ {np.median(bases) + sign * return_off:.1f})")
+    print(
+        f"  에피소드별 최대편차: 최소 {(sign * peak_devs).min():.1f}, p5 {np.percentile(sign * peak_devs, 5):.1f}, 최대 {(sign * peak_devs).max():.1f}"
+    )
+    print(
+        f"  tilt_off   = {args.tilt_frac:.2f} x {amp:.1f} = {tilt_off:.1f}  (절대값 환산 ≈ {np.median(bases) + sign * tilt_off:.1f})"
+    )
+    print(
+        f"  return_off = {args.return_frac:.2f} x {amp:.1f} = {return_off:.1f}  (절대값 환산 ≈ {np.median(bases) + sign * return_off:.1f})"
+    )
 
     # ---- 3) 감지기 실행 (state / action) ----
-    cfg = PourDetectorConfig(tilt_off=tilt_off, return_off=return_off, hold=args.hold, base_frames=base_n, sign=sign)
+    cfg = PourDetectorConfig(
+        tilt_off=tilt_off, return_off=return_off, hold=args.hold, base_frames=base_n, sign=sign
+    )
 
     def run_all(src, c):
         rows = []
@@ -166,32 +190,50 @@ def main():
 
     res = {src: run_all(src, cfg) for src in ("state", "action")}
     summary = dict(
-        joint=args.joint, sign=sign, amp=amp, tilt_frac=args.tilt_frac, return_frac=args.return_frac,
-        tilt_off=tilt_off, return_off=return_off, hold=args.hold, base_frames=base_n,
+        joint=args.joint,
+        sign=sign,
+        amp=amp,
+        tilt_frac=args.tilt_frac,
+        return_frac=args.return_frac,
+        tilt_off=tilt_off,
+        return_off=return_off,
+        hold=args.hold,
+        base_frames=base_n,
         baseline_median=float(np.median(bases)),
     )
     for src, r in res.items():
         d = r[r.detected]
-        print(f"\n[감지 결과 · {src}]  감지율 {r.detected.sum()}/{len(r)}"
-              f"   tilt 경계 다중 통과 에피소드 {int((r.n_tilt_crossings > 1).sum())}")
+        print(
+            f"\n[감지 결과 · {src}]  감지율 {r.detected.sum()}/{len(r)}"
+            f"   tilt 경계 다중 통과 에피소드 {int((r.n_tilt_crossings > 1).sum())}"
+        )
         if len(r) - len(d):
             print("  미감지:", r[~r.detected][["episode", "final_state"]].to_dict("records"))
-        for col, lab in [("tilt_t", "POURING 진입 (에피소드 시작 기준 s)"), ("done_t", "DONE (s)"),
-                         ("pour_s", "POURING 유지 시간 (s)"), ("done_after_peak_s", "DONE - 최대 기울기 시점 (s)"),
-                         ("end_after_done_s", "DONE 후 에피소드 종료까지 (s)")]:
+        for col, lab in [
+            ("tilt_t", "POURING 진입 (에피소드 시작 기준 s)"),
+            ("done_t", "DONE (s)"),
+            ("pour_s", "POURING 유지 시간 (s)"),
+            ("done_after_peak_s", "DONE - 최대 기울기 시점 (s)"),
+            ("end_after_done_s", "DONE 후 에피소드 종료까지 (s)"),
+        ]:
             q = d[col].quantile([0, 0.5, 1]).values
             print(f"  {lab:34s} 최소 {q[0]:6.1f}  중앙 {q[1]:6.1f}  최대 {q[2]:6.1f}")
         summary[src] = dict(
-            detected=int(r.detected.sum()), n=len(r), multi_crossing=int((r.n_tilt_crossings > 1).sum()),
-            done_t_max=float(d.done_t.max()), done_t_median=float(d.done_t.median()),
+            detected=int(r.detected.sum()),
+            n=len(r),
+            multi_crossing=int((r.n_tilt_crossings > 1).sum()),
+            done_t_max=float(d.done_t.max()),
+            done_t_median=float(d.done_t.median()),
             end_after_done_median=float(d.end_after_done_s.median()),
         )
         r.to_csv(args.out / f"detections_{src}.csv", index=False)
 
     to_max = summary["state"]["done_t_max"]
     summary["timeout_suggest_s"] = float(np.ceil(to_max * 1.3))
-    print(f"\n[타임아웃 백업 제안] 데이터 최대 DONE {to_max:.1f}s × 1.3 ≈ {summary['timeout_suggest_s']:.0f}s "
-          f"(= {int(summary['timeout_suggest_s'] * FPS)} step @30fps)")
+    print(
+        f"\n[타임아웃 백업 제안] 데이터 최대 DONE {to_max:.1f}s × 1.3 ≈ {summary['timeout_suggest_s']:.0f}s "
+        f"(= {int(summary['timeout_suggest_s'] * FPS)} step @30fps)"
+    )
 
     # ---- 4) 민감도 ----
     print("\n[민감도 · state]  감지율 / tilt 다중통과 에피소드 수 / DONE-최대기울기 중앙값(s)")
@@ -201,16 +243,29 @@ def main():
             if rf >= tf:
                 continue
             for h in (1, 5, 10, 15):
-                c = PourDetectorConfig(tilt_off=tf * amp, return_off=rf * amp, hold=h, base_frames=base_n, sign=sign)
+                c = PourDetectorConfig(
+                    tilt_off=tf * amp, return_off=rf * amp, hold=h, base_frames=base_n, sign=sign
+                )
                 ok, lat = 0, []
                 for e, v in eps.items():
                     det = PourDetector(c).run(v["state"][:, ji])
                     if det.state == DONE:
                         ok += 1
                         lat.append(det.done_step / FPS - per[e]["peak_t"])
-                multi = sum(excursions(v["state"][:, ji], np.median(v["state"][:base_n, ji]), tf * amp) > 1 for v in eps.values())
-                sweep.append(dict(tilt_frac=tf, return_frac=rf, hold=h, detected=ok, multi_crossing=multi,
-                                  done_after_peak_med=float(np.median(lat)) if lat else None))
+                multi = sum(
+                    excursions(v["state"][:, ji], np.median(v["state"][:base_n, ji]), tf * amp) > 1
+                    for v in eps.values()
+                )
+                sweep.append(
+                    dict(
+                        tilt_frac=tf,
+                        return_frac=rf,
+                        hold=h,
+                        detected=ok,
+                        multi_crossing=multi,
+                        done_after_peak_med=float(np.median(lat)) if lat else None,
+                    )
+                )
     sw = pd.DataFrame(sweep)
     sw.to_csv(args.out / "sweep_state.csv", index=False)
     piv = sw.pivot_table(index=["tilt_frac", "return_frac"], columns="hold", values="detected")
@@ -221,7 +276,7 @@ def main():
     nc = 10
     nr = int(np.ceil(len(order) / nc))
     fig, axs = plt.subplots(nr, nc, figsize=(2.2 * nc, 1.5 * nr), sharey=True)
-    rs, ra = res["state"].set_index("episode"), res["action"].set_index("episode")
+    rs = res["state"].set_index("episode")
     for ax, e in zip(axs.flat, order):
         b = per[e]["base"]
         t = np.arange(len(eps[e]["state"])) / FPS
@@ -232,14 +287,24 @@ def main():
         row = rs.loc[e]
         if row.detected:
             ax.axvline(row.done_t, color=INK, lw=0.8)
-        ax.set_title(f"ep{e}" + ("" if row.detected else " 미감지"), fontsize=7, color=INK if row.detected else C_TILT, pad=2)
+        ax.set_title(
+            f"ep{e}" + ("" if row.detected else " 미감지"),
+            fontsize=7,
+            color=INK if row.detected else C_TILT,
+            pad=2,
+        )
         ax.tick_params(labelsize=6, colors=INK2)
         for s in ("top", "right"):
             ax.spines[s].set_visible(False)
-    for ax in list(axs.flat)[len(order):]:
+    for ax in list(axs.flat)[len(order) :]:
         ax.axis("off")
-    fig.suptitle(f"{args.joint} · 파랑 state / 주황 action · 빨강 점선 tilt, 초록 점선 return · 검정 세로선 DONE(state)",
-                 x=0.01, ha="left", color=INK, fontsize=11)
+    fig.suptitle(
+        f"{args.joint} · 파랑 state / 주황 action · 빨강 점선 tilt, 초록 점선 return · 검정 세로선 DONE(state)",
+        x=0.01,
+        ha="left",
+        color=INK,
+        fontsize=11,
+    )
     fig.tight_layout(rect=(0, 0, 1, 0.98))
     fig.savefig(args.out / "wrist_roll_all_episodes.png", dpi=90)
     plt.close(fig)
@@ -256,11 +321,18 @@ def main():
     ax.axhline(tilt_off, color=C_TILT, lw=1, ls="--")
     ax.axhline(return_off, color=C_RET, lw=1, ls="--")
     ax.text(ax.get_xlim()[0], tilt_off, f" tilt_off {tilt_off:.0f}", color=INK2, va="bottom", fontsize=8)
-    ax.text(ax.get_xlim()[0], return_off, f" return_off {return_off:.0f}", color=INK2, va="bottom", fontsize=8)
+    ax.text(
+        ax.get_xlim()[0], return_off, f" return_off {return_off:.0f}", color=INK2, va="bottom", fontsize=8
+    )
     ax.axvline(0, color=INK, lw=0.8)
     ax.set_xlabel("DONE 기준 시간 (s)", color=INK2)
     ax.set_ylabel("기준선 대비 편차", color=INK2)
-    ax.set_title(f"{args.joint} · state · DONE 시점 정렬 ({int(rs.detected.sum())} 에피소드)", loc="left", color=INK, fontsize=10)
+    ax.set_title(
+        f"{args.joint} · state · DONE 시점 정렬 ({int(rs.detected.sum())} 에피소드)",
+        loc="left",
+        color=INK,
+        fontsize=10,
+    )
     style(ax)
     fig.tight_layout()
     fig.savefig(args.out / "wrist_roll_aligned_done.png", dpi=110)

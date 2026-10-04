@@ -1,0 +1,39 @@
+# 도구 설정 전용 (패키징 없음). 설치는 requirements.txt / 각 모듈의 requirements.txt 참고.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+extend-exclude = ["docs/media", "third_party", "outputs"]
+
+[tool.ruff.lint]
+# E, W: pycodestyle / F: pyflakes / I: isort / B: bugbear / UP: pyupgrade / SIM: simplify / C4: comprehensions
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4"]
+ignore = [
+    "E501",    # 긴 줄은 formatter 에 맡긴다 (한글 주석·문자열은 자르지 않음)
+    "E402",    # tts/ stt/ sim/ 독립 폴더: sys.path.insert 뒤에 import 하는 패턴
+    "B008",    # 기본 인자의 함수 호출 (Path(...) 등)
+    "B905",    # zip(strict=) 강제 안 함 (길이가 같은 배열끼리 묶는 곳뿐)
+    "C408",    # dict(a=1) 형태 허용 (설정·키워드 인자 묶음에서 더 읽기 쉬움)
+    "SIM105",  # try/except/pass 를 contextlib.suppress 로 바꾸지 않는다 (하드웨어 경계 가드)
+    "SIM108",  # 삼항 연산자 강제 안 함
+    "SIM117",  # 중첩 with 허용
+    "SIM300",  # NAMES == [...] 같은 대문자 상수 비교를 yoda 로 오인
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+# 독립 폴더의 로컬 모듈 (sys.path 로 import)
+known-first-party = [
+    "paths", "pour_detector", "backends", "keys",
+    "tts", "tts_player", "phrases",
+    "stt", "voice_command", "record_clips",
+    "sim_paths", "bi_so101_scene", "mujoco_bi_so101", "fetch_so101", "play_trajectory",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+# 각 모듈 폴더에서 실행: cd tts && python -m pytest -q tests  (stt, sim 동일)
+addopts = "-ra"

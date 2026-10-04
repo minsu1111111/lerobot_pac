@@ -35,7 +35,7 @@ import cv2
 import numpy as np
 
 try:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # pac2026/
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # 저장소 최상위
     from paths import OUTPUTS  # noqa: E402
 except Exception:  # paths.py 없이 단독 복사해 쓴 경우
     OUTPUTS = Path.cwd() / "outputs"
