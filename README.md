@@ -5,7 +5,7 @@
 **UNITA Manipulation (인천대학교)** · PAC 2026 피지컬 AI 챌린지 분과① 자율주제 선정작
 
 "물 따라줘" 라고 말하면 양팔 로봇이 왼팔로 컵을 잡고 오른팔로 물통을 기울여 물을 따르고,
-다 따르면 "다 따랐습니다" 라고 알려 준다. 로봇 동작은 사람 시연으로 학습한 정책(ACT)이 맡고,
+다 따르면 "목표량까지 따랐습니다" 라고 알려 준다. 로봇 동작은 사람 시연으로 학습한 정책(ACT)이 맡고,
 음성 인식·완료 판단·안내·안전 장치는 정책 바깥에서 붙였다.
 
 > **English summary.** A bimanual SO-101 robot (LeRobot `bi_so_follower`) pours water on a spoken Korean command.
@@ -31,7 +31,7 @@ flowchart LR
         ACT --> CLAMP[프레임당 10° 제한] --> ROBOT[양팔 SO-101]
         CAM --> DET[완료 감지기<br/>오른손목 roll]
     end
-    DET -->|완료| TTS[TTS 비차단 재생<br/>다 따랐습니다]
+    DET -->|완료| TTS[TTS 비차단 재생<br/>목표량까지 따랐습니다]
     DET -->|12초 뒤| STOP[정지 · 초기 자세]
 ```
 

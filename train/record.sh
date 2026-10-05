@@ -12,7 +12,12 @@
 # 물통 물 양 단계 같은 메모는 에피소드마다 local/outputs/record_notes.csv 에 직접 적는다 (lerobot 은 저장 안 함).
 set -euo pipefail
 
-PY_BIN="${UNITA_PY_BIN:-$HOME/miniconda3/envs/lerobot/bin}"
+# 롤아웃과 같은 env 로 수집 (lerobot-gpu 가 있으면 우선, run_demo.sh 와 같은 규칙)
+DEFAULT_BIN=$HOME/miniconda3/envs/lerobot/bin
+[ -x "$HOME/miniconda3/envs/lerobot-gpu/bin/lerobot-record" ] && DEFAULT_BIN=$HOME/miniconda3/envs/lerobot-gpu/bin
+PY_BIN="${UNITA_PY_BIN:-$DEFAULT_BIN}"
+# env 의 libstdc++ 먼저 (Ubuntu 20.04 의 옛 libstdc++ 로는 env 의 ffmpeg/torchcodec 이 안 뜬다, run_demo.sh 참고)
+[ -f "$PY_BIN/../lib/libstdc++.so.6" ] && export LD_PRELOAD="$PY_BIN/../lib/libstdc++.so.6${LD_PRELOAD:+:$LD_PRELOAD}"
 export UNITA_LOCAL="${UNITA_LOCAL:-$HOME/UNITA_PAC2026/local}"
 ENV_FILE="${UNITA_ROBOT_ENV:-$UNITA_LOCAL/robot.env}"
 [ -f "$ENV_FILE" ] || { echo "[record] 로봇 설정 없음: $ENV_FILE (rollout/robot.env.example 복사 후 채우기)" >&2; exit 1; }
@@ -62,5 +67,9 @@ CMD+=("$@")
 
 printf '[record] 실행:\n  '; printf '%q ' "${CMD[@]}"; echo
 [ "${DRY_RUN:-0}" = 1 ] && exit 0
+echo "[record] env: $PY_BIN"
 echo "[record] 녹화 중 키: → 다음 에피소드(일찍 끝내기), ← 다시 녹화, Esc 중단 (lerobot-record 기본)"
+# SSH 로 접속해 실행하면 DISPLAY 가 없어 lerobot 이 터미널 키 입력을 쓴다 (utils/keyboard_input.py TerminalKeyListener).
+# DISPLAY=:0 을 주면 pynput 이 노트북 본체 키보드만 듣게 되므로 SSH 에서는 DISPLAY 를 비워 둘 것.
+[ -n "${SSH_CONNECTION:-}" ] && [ -n "${DISPLAY:-}" ] && echo "[record] 경고: SSH 인데 DISPLAY=$DISPLAY → 키 입력이 노트북 본체 키보드로 감. unset DISPLAY 권장" >&2
 exec "${CMD[@]}"

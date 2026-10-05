@@ -52,8 +52,8 @@ du -sh "$DEST"
 PAC=$(cd "$(dirname "$0")/.." && pwd)
 cat <<EOF
 
-# 검증 (노트북, ~/lerobot 에서)
-PY=~/miniconda3/envs/lerobot/bin/python
+# 검증 (롤아웃 노트북, 아무 폴더에서나)
+PY=~/miniconda3/envs/lerobot-gpu/bin/python   # 없으면 ~/miniconda3/envs/lerobot/bin/python
 # 1) open-loop: 데이터셋 프레임 → 모델 → 완료 감지 (에피소드 몇 개만; 학습에 쓴 데이터라 파이프라인·감지 확인용)
 \$PY $PAC/validate/offline_model.py --dataset $DATASET \\
     --model $DEST --episodes 0 10 20 30 40 --out $LOCAL_ROOT/outputs/offline_model_${RUN_NAME}_$STEP

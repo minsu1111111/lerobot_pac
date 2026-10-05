@@ -216,6 +216,7 @@ class DatasetReplayRobot:
         self.finished = False  # pour_rollout 이 보고 stop:replay_end (hold_last 면 항상 False)
         self.episode_ended = False  # 에피소드 마지막 프레임에 도달했는지 (hold_last 와 무관)
         self.sent: list[np.ndarray] = []
+        self.decode_error: BaseException | None = None
 
     def _load_table(self):
         import pandas as pd
@@ -232,6 +233,16 @@ class DatasetReplayRobot:
         )
 
     def _decode(self, gen: int):
+        try:
+            self._decode_blocks(gen)
+        except BaseException as e:
+            # 스레드 예외는 아무도 못 받으므로 _frame 에서 다시 던진다 (안 하면 영원히 대기)
+            with self._cv:
+                if self._gen == gen:
+                    self.decode_error = e
+                    self._cv.notify_all()
+
+    def _decode_blocks(self, gen: int):
         from lerobot.datasets.video_utils import decode_video_frames
 
         for lo in range(0, self.length, self.BLOCK):
@@ -294,6 +305,8 @@ class DatasetReplayRobot:
         t = time.perf_counter()
         with self._cv:
             while self.ready <= i:
+                if self.decode_error is not None:
+                    raise RuntimeError(f"영상 디코딩 실패 (에피소드 {self.episode})") from self.decode_error
                 self._cv.wait(1.0)
             out = self.frames[i]
             for j in [j for j in self.frames if j < i]:  # 지나간 프레임 버림
