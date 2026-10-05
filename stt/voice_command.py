@@ -626,6 +626,19 @@ def load_whisper(model_name: str, device: str):
     return model, device
 
 
+def default_fp16(device: str) -> bool:
+    """fp16 은 텐서 코어가 있는 GPU(compute capability 7.0+)에서만 빠르다.
+
+    Pascal(GTX 10xx, 6.x)은 fp16 처리량이 fp32 의 1/64 라 오히려 느리다
+    (GTX 1060 + small: fp16 1.8s, fp32 0.3s, CPU 1.2s). CPU 는 fp16 미지원.
+    """
+    if device != "cuda":
+        return False
+    import torch
+
+    return torch.cuda.get_device_capability()[0] >= 7
+
+
 def transcribe(
     model,
     audio: np.ndarray,
@@ -727,7 +740,7 @@ class VoiceCommander:
         else:
             warmup = False  # 주어진 모델 객체(테스트의 가짜 모델 등)는 건드리지 않는다
             self.model, self.device, self.load_s = model, ("cpu" if device == "auto" else device), 0.0
-        self.fp16 = (self.device == "cuda") if fp16 is None else fp16
+        self.fp16 = default_fp16(self.device) if fp16 is None else fp16
         self.mic_device = mic
         self.max_record_s = max_record_s
         self.initial_prompt = initial_prompt

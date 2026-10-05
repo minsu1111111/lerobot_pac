@@ -1,6 +1,6 @@
 """카메라·그리퍼 마운트 점검 도구 (손목 카메라 수위 시험 포함). 절차는 CAMERA_CHECK.md.
 
-  PY=~/miniconda3/envs/lerobot/bin/python
+  PY=~/miniconda3/envs/lerobot-gpu/bin/python   # 없으면 envs/lerobot
   $PY tools/camera_check.py list                                   # 장치 목록 + 640x480/320x240@30 열리는지
   $PY tools/camera_check.py check --cam CAM --width 320 --height 240   # fps·드랍·밝기·포화·선명도 PASS/WARN
   $PY tools/camera_check.py focus --cam CAM --width 320 --height 240   # 렌즈 돌리며 선명도 실시간 (q 종료)

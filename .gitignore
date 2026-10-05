@@ -13,3 +13,6 @@ third_party/
 # PC 별 로봇 설정 (예시는 rollout/robot.env.example)
 robot.env
 !docs/media/*.mp4
+
+# 대회 내부 문서 (숙소·기차표 등 개인 정보, 깃에 올리지 않음)
+pac_docs/

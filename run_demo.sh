@@ -14,13 +14,25 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 저장소 최상위
 export UNITA_LOCAL="${UNITA_LOCAL:-$HOME/UNITA_PAC2026/local}"   # 결과물·robot.env 폴더 (깃 제외)
-PY="${UNITA_PY:-$HOME/miniconda3/envs/lerobot/bin/python}"   # conda activate 대신 env 의 python 을 직접 사용
+# conda activate 대신 env 의 python 을 직접 사용. lerobot-gpu(torch cu126, GTX 1060 에서 CUDA 동작)가 있으면 우선.
+# (lerobot env 의 torch 는 cu130 이라 드라이버 535 에서 CUDA 불가 → 정책이 CPU 로 돌아 청크마다 0.3s 끊김)
+DEFAULT_PY=$HOME/miniconda3/envs/lerobot/bin/python
+[ -x "$HOME/miniconda3/envs/lerobot-gpu/bin/python" ] && DEFAULT_PY=$HOME/miniconda3/envs/lerobot-gpu/bin/python
+PY="${UNITA_PY:-$DEFAULT_PY}"
 if [ ! -x "$PY" ]; then
   echo "[run_demo] 파이썬을 찾을 수 없음: $PY  (UNITA_PY=/경로/python 로 지정)" >&2
   exit 1
 fi
 
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1
+# conda env 의 libstdc++ 를 먼저 로드. 안 하면 torch 가 시스템의 옛 libstdc++ (Ubuntu 20.04) 를 잡아서
+# env 의 ffmpeg 로 torchcodec 을 못 띄워 영상 디코딩이 실패한다. LD_LIBRARY_PATH 로 env lib 전체를 앞세우면
+# 자식 프로세스 aplay 가 conda 의 libasound 를 잡아 소리가 안 나므로 libstdc++ 하나만 지정한다.
+# SSH(원격)로 실행하면 XDG_RUNTIME_DIR 가 비어 PulseAudio 를 못 찾는다 → ALSA 가 장치를 직접 잡아
+# 마이크(음성 정지)와 스피커(TTS)가 서로 "Device or resource busy" 로 막힌다.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+ENV_STDCXX="$(dirname "$PY")/../lib/libstdc++.so.6"
+[ -f "$ENV_STDCXX" ] && export LD_PRELOAD="$ENV_STDCXX${LD_PRELOAD:+:$LD_PRELOAD}"
 
 BACKEND=real
 CHECK=1

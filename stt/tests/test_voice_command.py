@@ -241,11 +241,17 @@ def test_listen_no_match_and_silence():
     assert r.command is None and r.text == "" and vc.model.calls == []
 
 
-def test_initial_prompt_off_and_fp16_cuda():
-    vc = v.VoiceCommander(model=FakeWhisper(), device="cuda", initial_prompt="")
-    vc.transcribe_audio(np.full(16000, 0.3, np.float32))
-    kw = vc.model.calls[0][1]
-    assert kw["initial_prompt"] is None and kw["fp16"] is True
+def test_initial_prompt_off_and_fp16_cuda(monkeypatch):
+    for fast in (True, False):  # 텐서 코어 있는 GPU → fp16, Pascal 등 → fp32
+        monkeypatch.setattr(v, "default_fp16", lambda device, fast=fast: fast)
+        vc = v.VoiceCommander(model=FakeWhisper(), device="cuda", initial_prompt="")
+        vc.transcribe_audio(np.full(16000, 0.3, np.float32))
+        kw = vc.model.calls[0][1]
+        assert kw["initial_prompt"] is None and kw["fp16"] is fast
+
+
+def test_default_fp16_cpu_without_torch():
+    assert v.default_fp16("cpu") is False
 
 
 def test_transcribe_file_resamples():
