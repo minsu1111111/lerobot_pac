@@ -53,7 +53,7 @@ flowchart LR
 | ④ 검증 | 노트북 | 학습 도는 동안 체크포인트를 받아 오프라인 검증 + 시뮬 | [검증](#체크포인트-검증) |
 | ⑤ 실행 | 노트북 | **첫 시험은 "물 담고 붓는 중 정지 → 물이 멈추는지"**, 그다음 전체 시나리오 반복 | `bash run_demo.sh` |
 
-모든 단계를 SSH 터미널(Tailscale)에서 할 수 있다. 끊김 대비로 `tmux` 안에서 실행할 것.
+모든 단계를 SSH 터미널(Tailscale)에서 할 수 있다. 끊김 대비로 `tmux` 안에서 실행할 것 (노트북에 없으면 `sudo apt install tmux`).
 
 ## 노트북 준비
 
@@ -66,8 +66,9 @@ python tools/offline_check.py --block-network   # 인터넷 없이 모델·Whisp
 - **반드시 `lerobot-gpu`.** GTX 1060(Pascal)은 CUDA 12.6 빌드 torch(`2.11.0+cu126`)만 GPU 를 쓴다.
   `lerobot` env 는 cu130 빌드라 드라이버 535 에서 CUDA 가 안 돼 정책이 CPU 로 돌고, 청크마다 약 0.3 초씩 멈칫한다.
   `run_demo.sh` 와 `train/record.sh` 는 `lerobot-gpu` 가 있으면 자동으로 그쪽을 쓴다.
-- 로봇 설정 한 파일을 수집·롤아웃이 같이 쓴다: `cp rollout/robot.env.example ~/UNITA_PAC2026/local/robot.env` 후
+- 로봇 설정 한 파일을 수집·롤아웃이 같이 쓴다: `~/UNITA_PAC2026/local/robot.env` (없으면 `rollout/robot.env.example` 복사).
   포트·카메라 경로를 채운다. 카메라는 `/dev/videoN` 대신 `/dev/v4l/by-id/...` (재연결해도 안 바뀜).
+  양팔 카메라 3대가 `REPLACE` 자리표시자로 남아 있으면 `run_demo.sh` 가 실행을 막는다. 한 팔 리허설은 `SINGLE_*` 항목.
 - 디스크 여유 20 GB 이상 (수집 중 임시 이미지가 크다).
 - **마이크 입력 볼륨을 너무 높이지 말 것.** 이 노트북은 캡처 100%(+30 dB)에서 신호가 잘려(클리핑) 짧은 정지어를 놓쳤다.
   `amixer -c 0 sset Capture 30` (48%) 에서 정상. 현장에서 마이크를 바꾸면 `python stt/voice_command.py --mode stream` 으로 먼저 확인.
@@ -122,7 +123,8 @@ flowchart LR
   ±180° 를 넘어가도 각도를 이어 붙여 계산한다(중간 완료 오판 방지). 기준선은 새 데이터로 `--install` 해서 갱신.
 - **정상 종료**: 완료 뒤 정책이 컵을 내려놓고 시작 자세 근처(15° 이내)에서 팔·그리퍼가 1초 멈추면 끝 (최대 25초).
 - **정지 절차** (붓기 완료 전): ① 오른손목이 15° 이상 기울어 있으면 기울이기 직전 자세로 1.5초에 세움 → ② 실제로 보냈던
-  명령 경로를 거꾸로 0.7배속 재생 → 컵·물통은 집은 자리에 놓이고 그리퍼가 열린 뒤 시작 자세.
+  명령 경로를 거꾸로 0.7배속 재생 → 컵·물통은 집은 자리에 놓이고 그리퍼가 열림 → ③ 붓기 시작 때 관측한 자세로 0.5초에
+  마무리 (정책의 첫 명령이 튀었어도 정확히 시작 자세로).
   관측값이 아니라 보냈던 명령을 되감는다 (관측값을 명령하면 쥔 그리퍼의 힘이 빠지고 무게로 처진 팔이 더 처진다).
   붓기 완료 뒤 정지는 되감지 않고 그 자리에서 멈춘다 (되감으면 내려놓은 컵을 다시 집어 온다).
 - **붓는 중 음성 정지**: 별도 프로세스에서 최근 2초를 0.5초마다 Whisper 로 확인한다 (제어 루프를 막지 않게). 정지어만 보며,
@@ -133,12 +135,12 @@ flowchart LR
 | 문제 | 해결 | 결과 |
 |---|---|---|
 | 언제 "다 따랐는지" 알기 (물이 투명해 비전 판정 불안정) | 붓는 팔 손목 roll 한 관절, 두 기준선 + 5프레임 유지 히스테리시스. 모델 재학습 불필요 | 데이터셋 **100/100**, 모델 출력(open-loop) **100/100**, 완료 시점 차이 중앙 0.07 s |
-| 정지했는데 기울어진 물통에서 물이 계속 나옴 | 물통 먼저 세우기 + 지나온 명령 경로 되감기 | 시뮬: 붓는 중 어느 시점에 멈춰도 물통 1.5 s 안에 세움. **실제 follower1**: 손목 세우기 1.75 s, 되감기 명령 프레임당 최대 1.8°, 시작 자세 오차 ≤0.7° |
+| 정지했는데 기울어진 물통에서 물이 계속 나옴 | 물통 먼저 세우기 + 지나온 명령 경로 되감기 | 시뮬: 붓는 중 어느 시점에 멈춰도 물통 1.5 s 안에 세움. **양팔 시뮬**(정지 시점 4곳): 컵·물통이 처음 자리 0.3 cm 이내, 끝 자세 오차 ≤1.3°. **실제 follower1**: 손목 세우기 1.75 s, 되감기 명령 프레임당 최대 1.8°, 시작 자세 오차 ≤0.7° |
 | 붓는 중 손을 쓸 수 없는 사용자 | 별도 프로세스 음성 정지. 최근 2 s 를 0.5 s 마다 확인(겹치는 창), 마이크는 별도 스레드로 계속 읽음, 정지용은 Whisper 힌트 문장 끔 | **실제 follower1** 이 움직이는 중 스피커→마이크: 정지어 시작부터 0.7~1.4 s 에 정지 (조용함·분홍 잡음 모두). 말 끝을 기다리던 방식은 소음에서 4.3 s 또는 놓침 |
 | ACT 가 100스텝마다 새 청크를 낼 때 명령이 튐 | 직전 명령 대비 **프레임당 10° 제한** | open-loop 최대 69.8° → 10° |
 | 안내 음성이 제어 루프를 막음 | 미리 만든 wav 를 백그라운드 스레드에서 재생 | `say()` 0.2 ms, 30 fps 루프 지연 0건 |
 | 말로 시작 | 붓는 중 정지와 같은 겹치는 창(`--stt-mode stream`): 최근 2 s 를 0.5 s 마다 Whisper 로 받아씀. 시작은 2번 연속 들려야 반응(환각 한 번에 로봇이 움직이지 않게) | 롤아웃 시뮬에서 "물 따라줘" 재생 시작부터 **1.8 s** 에 시작 (조용함·잡음). 예전 '말 끝까지 녹음' 방식은 노트북 소음에서 매번 **10 s**. 합성 음성 122개 98.4%, GTX 1060 인식 0.3 s |
-| 하드웨어 없이 전체 시험 | 공식 SO-101 MJCF 두 대로 양팔 디지털 트윈 | 정상 종료·정지·되감기·시간 초과·음성 정지 확인 |
+| 하드웨어 없이 전체 시험 | 공식 SO-101 MJCF 두 대로 양팔 디지털 트윈, 한 팔 모드는 MuJoCo 로 움직이는 가짜 팔 | 정상 종료·정지·되감기·시간 초과·음성 정지, 한 팔 모드 경로 확인 |
 | 대회장은 인터넷이 없을 수 있음 | 오프라인 점검, ResNet 다운로드 차단, wav 미리 생성 | 네트워크 차단 상태에서 전부 로드 확인 |
 
 자세한 근거와 그래프: [`docs/DESIGN.md`](docs/DESIGN.md)
@@ -192,6 +194,19 @@ bash run_demo.sh --sim --sim-render window --policy $CKPT --dataset $DATA --epis
 시뮬은 영상이 녹화본이라 **모델이 실제로 성공하는지는 알 수 없다** (관절·흐름 확인용). 성공 여부는 실제 로봇으로만 확인된다.
 Tailscale 로 데스크탑에서 직접 가져오는 방법은 [`train/fetch_checkpoint.sh`](train/fetch_checkpoint.sh).
 
+## 한 팔 리허설 (대회 전 파이프라인 연습)
+
+팔 한 대(follower1)를 붓는 팔로 써서 수집 → 학습 → 롤아웃(음성 정지·되감기 포함)을 미리 한 번 돌려 본다.
+
+1. **수집**: `lerobot-record --robot.type=so101_follower --robot.port=/dev/follower1 --robot.id=follower1` 에 카메라 `top`·`wrist`
+   (robot.env 의 `SINGLE_TOP_CAM`·`SINGLE_WRIST_CAM`, 640×480·320×240, MJPG), 리더 하나, `--dataset.push_to_hub=true --dataset.private=true`.
+   컵 위치를 표시하고 25~30개. 매번: 시작 자세 → 컵 들기 → 80° 이상 기울여 1초 → 되돌리기 → 같은 자리에 놓기 → 시작 자세.
+2. **학습** (데스크탑): `lerobot-train --policy.type=act --dataset.repo_id=<데이터> --save_freq=5000 --save_checkpoint_to_hub=true --policy.repo_id=<새 이름> --policy.private=true ...`
+3. **기준값** (노트북, 기본 `thresholds.json` 은 건드리지 않음):
+   `python analysis/joint_analysis.py --dataset <데이터 폴더> --joint wrist_roll.pos --out ~/UNITA_PAC2026/local/outputs/single_th`
+4. **롤아웃**: `bash run_demo.sh --single --policy <체크포인트> --thresholds ~/UNITA_PAC2026/local/outputs/single_th/summary.json`
+   → 붓는 중 "멈춰" 로 정지·되감기 확인.
+
 ## 시험 도구
 
 | 명령 | 용도 |
@@ -208,7 +223,7 @@ Tailscale 로 데스크탑에서 직접 가져오는 방법은 [`train/fetch_che
 
 | 폴더 | 내용 |
 |---|---|
-| [`rollout/`](rollout/) | 데모 롤아웃 루프(`pour_rollout.py`) — 정책 추론, 완료 감지, 정지·되감기, TTS·STT, 백엔드 3종(`backends.py`), 붓는 중 음성 정지(`voice_stop.py`) |
+| [`rollout/`](rollout/) | 데모 롤아웃 루프(`pour_rollout.py`) — 정책 추론, 완료 감지, 정지·되감기, TTS·STT, 백엔드 4종(`backends.py`: real·replay·replay+mujoco·single), 붓는 중 음성 정지(`voice_stop.py`) |
 | [`tts/`](tts/) | 고정 문구 wav 비차단 재생. 문구는 `tts/phrases.py`, 바꾸면 `python tts/generate_wavs.py` (인터넷 필요) |
 | [`stt/`](stt/) | 음성 명령 인식 — 자동 감지/Enter 녹음, Whisper, 명령어 매칭, 인식률 시험·녹음 도구 |
 | [`sim/`](sim/) | 양팔 SO-101 MuJoCo — 궤적 재생 영상, 롤아웃용 가짜 관절 로봇 |
@@ -225,7 +240,7 @@ Tailscale 로 데스크탑에서 직접 가져오는 방법은 [`train/fetch_che
 - 데이터셋 [`UNITAmanipulation/bi_so101_pour_water_20260920_194823`](https://huggingface.co/datasets/UNITAmanipulation/bi_so101_pour_water_20260920_194823) — 100 에피소드, 117,619 프레임, 30 fps, 카메라 3대(top 640×480, 손목 320×240), 상태·행동 12차원 (물통을 다 비우는 방식)
 - 모델 [`UNITAmanipulation/act_pour_water_100`](https://huggingface.co/UNITAmanipulation/act_pour_water_100) — ACT (ResNet18, chunk 100), 10만 스텝. 실제 로봇 성공률 약 90%
 
-## 현재 상태 (2026-10-05)
+## 현재 상태 (2026-10-06)
 
 | 항목 | 상태 |
 |---|---|
@@ -234,6 +249,8 @@ Tailscale 로 데스크탑에서 직접 가져오는 방법은 [`train/fetch_che
 | 음성 시작·정지, 안내 음성 | 롤아웃 전체("물 따라줘" → 붓기 → "멈춰" → 되감기)를 스피커→마이크로 조용함·잡음 모두 확인, 본인 목소리 "멈춰"·"물 따라줘" 확인. **현장 소음에서는 미확인** |
 | 정지 → 물통 세우기 → 되감기 | 시뮬 + **실제 follower1 한 팔**(음성 정지 포함)로 확인. 양팔·물로는 대회장에서 처음 (첫 시험 항목) |
 | 정상 종료 판단 (정리 후 멈춤) | 기존 모델 시뮬로 확인. 새 모델·실제 로봇은 미확인 |
+| 연결 시 튐 방지 (목표=현재 위치 후 토크 켬) | follower1 시험 스크립트로 같은 절차 확인. 롤아웃 양팔·한 팔 백엔드 실물은 미확인 |
+| 한 팔 리허설 모드 (`--single`) | 학습 안 된 한 팔 정책 + MuJoCo 가짜 팔로 경로 확인 (복귀 오차 0.2°). 실물·학습된 모델은 미확인 |
 | 새 그리퍼·마운트로 수집·학습 | 대회장에서 |
 
 - 모델 검증 100개는 학습에 쓴 데이터라 일반화 성능이 아니라 파이프라인 확인이다.
