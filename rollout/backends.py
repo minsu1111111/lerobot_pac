@@ -164,6 +164,88 @@ class RealRobot:
 
 
 # --------------------------------------------------------------------------- #
+# single (팔 한 대, 리허설용)
+# --------------------------------------------------------------------------- #
+class SingleArmRobot:
+    """팔로워 한 대를 롤아웃의 '오른팔(붓는 팔)' 자리에 보이게 한다. 왼팔 칸은 0, 왼손목 카메라는 검은 화면.
+
+    롤아웃 루프(12관절·완료 감지 state[10]·정지·되감기)를 그대로 쓰려고 만든 어댑터. 정책은 한 팔 정책
+    (관절 6 + 카메라 top / wrist) 이어야 한다 (pour_rollout.Policy(single=True)).
+    연결할 때 목표 위치를 현재 위치로 맞춘 뒤 토크를 켠다 (configure 가 옛 목표로 팔을 튕기지 않게).
+    """
+
+    def __init__(
+        self, port, robot_id, top_cam, wrist_cam, fourcc=None, max_relative_target=None, keep_torque=False
+    ):
+        from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
+        from lerobot.robots.so_follower import SOFollower
+        from lerobot.robots.so_follower.config_so_follower import SOFollowerRobotConfig
+
+        def cam(path, shape):
+            h, w, _ = shape
+            src = int(path) if str(path).isdigit() else Path(path)
+            return OpenCVCameraConfig(index_or_path=src, fps=30, width=w, height=h, fourcc=fourcc)
+
+        cams = {"top": cam(top_cam, CAM_SHAPES["top"]), "wrist": cam(wrist_cam, CAM_SHAPES["right_wrist"])}
+        mrt = None if max_relative_target is None else float(max_relative_target)
+        self.arm = SOFollower(
+            SOFollowerRobotConfig(
+                port=port,
+                id=robot_id,
+                cameras=cams,
+                max_relative_target=mrt,
+                disable_torque_on_disconnect=not keep_torque,
+                use_degrees=True,
+            )
+        )
+        self.initial_position: dict | None = None
+        self._blank = np.zeros(CAM_SHAPES["left_wrist"], np.uint8)
+
+    observation_features = property(lambda self: _features())
+    action_features = property(lambda self: dict.fromkeys(JOINT_KEYS, float))
+    is_connected = property(lambda self: self.arm.is_connected)
+
+    def connect(self):
+        bus = self.arm.bus
+        bus.connect()
+        if not self.arm.is_calibrated:
+            bus.write_calibration(self.arm.calibration)
+        bus.sync_write("Goal_Position", bus.sync_read("Present_Position"))
+        for c in self.arm.cameras.values():
+            c.connect()
+        self.arm.configure()
+        obs = self.get_observation()
+        self.initial_position = {k: obs[k] for k in JOINT_KEYS}
+
+    def get_observation(self):
+        o = self.arm.get_observation()
+        obs = {f"left_{m}.pos": 0.0 for m in MOTORS}
+        obs.update({f"right_{m}.pos": float(o[f"{m}.pos"]) for m in MOTORS})
+        obs.update(top=o["top"], right_wrist=o["wrist"], left_wrist=self._blank)
+        return obs
+
+    def send_action(self, action):
+        out = self.arm.send_action({f"{m}.pos": action[f"right_{m}.pos"] for m in MOTORS})
+        res = {f"left_{m}.pos": float(action[f"left_{m}.pos"]) for m in MOTORS}  # 보내지 않음, 그대로 돌려줌
+        res.update({f"right_{m}.pos": float(out[f"{m}.pos"]) for m in MOTORS})
+        return res
+
+    def return_to_initial(self, duration_s=3.0, fps=50):
+        if not self.initial_position or not self.arm.is_connected:
+            return
+        cur = self.get_observation()
+        n = max(int(duration_s * fps), 1)
+        for i in range(1, n + 1):
+            t = i / n
+            self.send_action({k: cur[k] * (1 - t) + v * t for k, v in self.initial_position.items()})
+            time.sleep(1 / fps)
+
+    def disconnect(self):
+        if self.arm.is_connected:
+            self.arm.disconnect()
+
+
+# --------------------------------------------------------------------------- #
 # replay
 # --------------------------------------------------------------------------- #
 class DatasetReplayRobot:
