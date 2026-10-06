@@ -69,6 +69,8 @@ python tools/offline_check.py --block-network   # 인터넷 없이 모델·Whisp
 - 로봇 설정 한 파일을 수집·롤아웃이 같이 쓴다: `cp rollout/robot.env.example ~/UNITA_PAC2026/local/robot.env` 후
   포트·카메라 경로를 채운다. 카메라는 `/dev/videoN` 대신 `/dev/v4l/by-id/...` (재연결해도 안 바뀜).
 - 디스크 여유 20 GB 이상 (수집 중 임시 이미지가 크다).
+- **마이크 입력 볼륨을 너무 높이지 말 것.** 이 노트북은 캡처 100%(+30 dB)에서 신호가 잘려(클리핑) 짧은 정지어를 놓쳤다.
+  `amixer -c 0 sset Capture 30` (48%) 에서 정상. 현장에서 마이크를 바꾸면 `python stt/voice_command.py --mode stream` 으로 먼저 확인.
 
 ## 실행 (롤아웃)
 
@@ -89,7 +91,7 @@ bash run_demo.sh --sim --policy <체크포인트 폴더> --dataset <데이터 �
 
 | 옵션 | 기본 | 언제 |
 |---|---|---|
-| `--stt-mode enter` | `vad` (말하면 자동 녹음) | 현장이 시끄러울 때. Enter → 말하기 → Enter |
+| `--stt-mode enter` | `stream` (최근 2초를 0.5초마다 받아써 바로 반응) | 음성이 계속 안 될 때 비상용. Enter → 말하기 → Enter |
 | `--mic <번호>` | 시스템 기본 | 헤드셋 마이크 (`python stt/voice_command.py --list-devices`) |
 | `--no-voice-stop` | 켜짐 | 붓는 중 음성 정지를 끄고 키보드만 |
 | `--untilt-s 2.5` | 1.5 | 정지 때 물통을 세우며 물이 출렁이면 늘림 |
@@ -134,7 +136,7 @@ flowchart LR
 | 붓는 중 손을 쓸 수 없는 사용자 | 별도 프로세스 음성 정지. 최근 2 s 를 0.5 s 마다 확인(겹치는 창), 마이크는 별도 스레드로 계속 읽음, 정지용은 Whisper 힌트 문장 끔 | **실제 follower1** 이 움직이는 중 스피커→마이크: 정지어 시작부터 0.7~1.4 s 에 정지 (조용함·분홍 잡음 모두). 말 끝을 기다리던 방식은 소음에서 4.3 s 또는 놓침 |
 | ACT 가 100스텝마다 새 청크를 낼 때 명령이 튐 | 직전 명령 대비 **프레임당 10° 제한** | open-loop 최대 69.8° → 10° |
 | 안내 음성이 제어 루프를 막음 | 미리 만든 wav 를 백그라운드 스레드에서 재생 | `say()` 0.2 ms, 30 fps 루프 지연 0건 |
-| 말로 시작 | webrtcvad 말소리 감지 → Whisper(ko) → 키워드 매칭, 정지 우선 | 합성 음성 122개 **98.4%**. GTX 1060 에서 인식 **0.3 s** (Pascal 은 fp16 이 더 느려 fp32 자동 선택) |
+| 말로 시작 | 붓는 중 정지와 같은 겹치는 창(`--stt-mode stream`): 최근 2 s 를 0.5 s 마다 Whisper 로 받아씀. 시작은 2번 연속 들려야 반응(환각 한 번에 로봇이 움직이지 않게) | 롤아웃 시뮬에서 "물 따라줘" 재생 시작부터 **1.8 s** 에 시작 (조용함·잡음). 예전 '말 끝까지 녹음' 방식은 노트북 소음에서 매번 **10 s**. 합성 음성 122개 98.4%, GTX 1060 인식 0.3 s |
 | 하드웨어 없이 전체 시험 | 공식 SO-101 MJCF 두 대로 양팔 디지털 트윈 | 정상 종료·정지·되감기·시간 초과·음성 정지 확인 |
 | 대회장은 인터넷이 없을 수 있음 | 오프라인 점검, ResNet 다운로드 차단, wav 미리 생성 | 네트워크 차단 상태에서 전부 로드 확인 |
 
@@ -194,7 +196,7 @@ Tailscale 로 데스크탑에서 직접 가져오는 방법은 [`train/fetch_che
 | 명령 | 용도 |
 |---|---|
 | `python tts/tts_player.py` | 안내 음성 8개 재생 |
-| `python stt/voice_command.py --mode vad --stt-device cuda` | 명령 인식만 시험 ("물 따라줘" → pour, "정지" → stop) |
+| `python stt/voice_command.py --mode stream --stt-device cuda` | 명령 인식만 시험 ("물 따라줘" → pour, "정지" → stop) |
 | `python tools/teleop_pour_check.py` | **팔 한 대**(follower1)로 완료 감지·TTS·STT 시험. 리더 없으면 손으로, `--leader-port` 로 텔레옵 |
 | `python tools/camera_check.py list` | 카메라 경로·해상도 확인 (`focus`, `capture`, `compare` 도 있음) |
 | `python tools/offline_check.py --block-network` | 인터넷 없이 전부 로드되는지 |
@@ -228,7 +230,7 @@ Tailscale 로 데스크탑에서 직접 가져오는 방법은 [`train/fetch_che
 |---|---|
 | 기존 모델로 실제 양팔 롤아웃 | 확인 (이번 변경 전 코드) |
 | 손목 각도 완료 감지 | 데이터 100/100, follower1 실제 팔로 확인 |
-| 음성 시작·정지, 안내 음성 | 실제 마이크·스피커, 분홍 잡음까지 확인. **사람 목소리·현장 소음에서는 미확인** |
+| 음성 시작·정지, 안내 음성 | 롤아웃 전체("물 따라줘" → 붓기 → "멈춰" → 되감기)를 스피커→마이크로 조용함·잡음 모두 확인, 본인 목소리 "멈춰"·"물 따라줘" 확인. **현장 소음에서는 미확인** |
 | 정지 → 물통 세우기 → 되감기 | 시뮬 + **실제 follower1 한 팔**(음성 정지 포함)로 확인. 양팔·물로는 대회장에서 처음 (첫 시험 항목) |
 | 정상 종료 판단 (정리 후 멈춤) | 기존 모델 시뮬로 확인. 새 모델·실제 로봇은 미확인 |
 | 새 그리퍼·마운트로 수집·학습 | 대회장에서 |
