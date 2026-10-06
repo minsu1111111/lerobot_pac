@@ -79,6 +79,7 @@ bash run_demo.sh                              # 실제 로봇
 bash run_demo.sh --sim --sim-render window    # 하드웨어 없이: 녹화 영상 + MuJoCo 관절 (노트북 화면에 창)
 bash run_demo.sh --replay                     # 하드웨어 없이: 녹화 데이터 그대로 재생
 bash run_demo.sh --sim --policy <체크포인트 폴더> --dataset <데이터 폴더>   # 새 모델·새 데이터로
+bash run_demo.sh --single --policy <한 팔 체크포인트> --thresholds <한 팔 임계값.json>   # 팔 한 대 리허설 (robot.env 의 SINGLE_*)
 ```
 
 | 조작 | 대기 중 | 붓는 중 | 되감는 중 |

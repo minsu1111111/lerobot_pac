@@ -332,6 +332,7 @@ def rewind_plan(
        untilt_deg 미만이던 마지막 자세로 untilt_s 동안 바로 보간한다. 붓는 동안 기울인 채 버틴 구간을
        거꾸로 재생하지 않으므로 붓기가 곧바로 멈춘다 (순수 되감기는 시뮬에서 7~20s 걸림).
     2) 되감기: 그 자세부터 경로를 거꾸로 speed 배속으로 (프레임 사이 선형 보간).
+    3) 마무리: 붓기 시작 때 관측한 자세로 0.5s.
     """
     P = np.asarray(sent_path, dtype=np.float32)
     cut = len(P) - 1  # 되감기 시작 프레임
@@ -352,6 +353,11 @@ def rewind_plan(
         i = min(int(f), len(rev) - 1)
         j = min(i + 1, len(rev) - 1)
         back.append(rev[i] + (rev[j] - rev[i]) * (f - i))
+    # 마무리: 첫 '명령'이 아니라 붓기 시작 때 '관측한' 자세로 0.5s 보간. 첫 명령은 정책 첫 출력이라 시작 자세와
+    # 다를 수 있다 (학습 안 된 한 팔 정책 시험에서 최대 24° 차이로 멈춤을 확인).
+    start = np.asarray(path[0], dtype=np.float32)
+    m = int(0.5 * FPS)
+    back += [rev[-1] + (start - rev[-1]) * (i / m) for i in range(1, m + 1)]
     return np.asarray(untilt + back, dtype=np.float32), len(untilt)
 
 
@@ -403,7 +409,9 @@ def rewind(args, robot, path, sent_path, det, keys, rows):
         untilt_s=n_untilt / FPS,
         duration_s=dur,
         path_s=len(path) / FPS,
-        end_dev_deg=float(np.abs(prev[ARM] - np.asarray(sent_path[0])[ARM]).max()),
+        end_dev_deg=float(
+            np.abs(prev[ARM] - np.asarray(path[0])[ARM]).max()
+        ),  # 마지막 명령 vs 시작 관측 자세
     )
 
 
