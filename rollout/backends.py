@@ -45,6 +45,23 @@ def _features():
     return {**dict.fromkeys(JOINT_KEYS, float), **CAM_SHAPES}
 
 
+def safe_connect(arm):
+    """SOFollower.connect 와 같되, 토크를 켜기 전에 목표 위치를 현재 위치로 맞춘다.
+
+    lerobot 은 configure() 끝에서 토크를 켜는데, 모터에 예전 목표 위치가 남아 있으면 그 순간 팔이 그쪽으로 튄다.
+    캘리브레이션이 모터와 다르면 파일 값을 모터에 쓴다 (SOFollower.calibrate 에서 Enter = 파일 사용 과 같음).
+    """
+    arm.bus.connect()
+    if not arm.is_calibrated:
+        if not arm.calibration:
+            raise RuntimeError(f"{arm} 캘리브레이션 파일 없음 → lerobot-calibrate 먼저")
+        arm.bus.write_calibration(arm.calibration)
+    arm.bus.sync_write("Goal_Position", arm.bus.sync_read("Present_Position"))
+    for c in arm.cameras.values():
+        c.connect()
+    arm.configure()
+
+
 # --------------------------------------------------------------------------- #
 # real
 # --------------------------------------------------------------------------- #
@@ -136,8 +153,8 @@ class RealRobot:
         return self.robot.is_connected
 
     def connect(self):
-        # 캘리브레이션 파일과 모터 값이 다르면 SOFollower.calibrate() 가 input() 으로 묻는다 (Enter = 파일 사용)
-        self.robot.connect()
+        for arm in (self.robot.left_arm, self.robot.right_arm):  # 상단 카메라는 왼팔에 붙어 함께 연결됨
+            safe_connect(arm)
         obs = self.robot.get_observation()
         self.initial_position = {k: obs[k] for k in JOINT_KEYS}
 
@@ -206,14 +223,7 @@ class SingleArmRobot:
     is_connected = property(lambda self: self.arm.is_connected)
 
     def connect(self):
-        bus = self.arm.bus
-        bus.connect()
-        if not self.arm.is_calibrated:
-            bus.write_calibration(self.arm.calibration)
-        bus.sync_write("Goal_Position", bus.sync_read("Present_Position"))
-        for c in self.arm.cameras.values():
-            c.connect()
-        self.arm.configure()
+        safe_connect(self.arm)
         obs = self.get_observation()
         self.initial_position = {k: obs[k] for k in JOINT_KEYS}
 
