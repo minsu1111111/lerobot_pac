@@ -819,10 +819,10 @@ def parse_args(argv=None):
     g.add_argument("--mic", default=None)
     g.add_argument("--no-voice-stop", action="store_true", help="붓는 동안 음성 정지 끔 (키보드 정지만)")
     g.add_argument(
-        "--voice-stop-silence-ms",
-        type=int,
-        default=500,
-        help="음성 정지: 이 시간 무음이면 말 끝 (짧을수록 빨리 반응)",
+        "--voice-stop-hop-s",
+        type=float,
+        default=0.5,
+        help="음성 정지: 최근 2s 를 이 간격마다 확인 (짧을수록 빨리 반응, GPU 더 씀)",
     )
     g.add_argument("--auto-start", action="store_true", help="명령 없이 바로 1회 붓고 종료 (시험용)")
     g.add_argument("--test-stop-at", type=float, default=None, help="시험용: 이 시각(s)에 정지 키 입력 흉내")
@@ -886,7 +886,7 @@ def main(argv=None):
         from voice_stop import VoiceStop
 
         print("[음성정지] 붓는 동안 듣는 프로세스 시작 (Whisper 로딩) ...")
-        voice_stop = VoiceStop(model=args.stt_model, mic=args.mic, silence_ms=args.voice_stop_silence_ms)
+        voice_stop = VoiceStop(model=args.stt_model, mic=args.mic, hop_s=args.voice_stop_hop_s)
         if not voice_stop.start():
             voice_stop.close()
             voice_stop = None
