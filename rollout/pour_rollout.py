@@ -24,7 +24,8 @@
   상태 기계·완료 감지기·TTS·키 정지·명령 클램프·로그를 끼운다.
 
 [상태 기계]
-  IDLE   : TTS ready → 명령 대기. 기본 --stt-mode vad = Enter 없이 말소리 자동 감지 ("물 따라줘"),
+  IDLE   : TTS ready → 명령 대기. 기본 --stt-mode stream = 최근 2초를 0.5초마다 받아써 바로 반응 ("물 따라줘"),
+           (시작은 겹치는 창 2번 연속으로 나와야 함), --stt-mode vad = 말 끝까지 녹음 후 인식,
            --stt-mode enter = Enter 로 녹음 시작/끝. 어느 쪽이든 p/s/q + Enter 키보드 입력도 받음.
            안내 음성이 끝난 뒤에만 듣는다 ("물을 따르겠습니다" 의 '따르' 를 스스로 명령으로 듣지 않게).
   POUR   : pour 명령 → TTS start → policy/processor/감지기 리셋 → 30fps 제어 루프
@@ -182,6 +183,7 @@ class Policy:
         task: str = TASK,
         keep_backbone_download: bool = False,
         sync_exact: bool = False,
+        single: bool = False,
     ):
         import torch
         from lerobot.configs.policies import PreTrainedConfig
@@ -220,12 +222,22 @@ class Policy:
 
         from lerobot.utils.feature_utils import hw_to_dataset_features
 
-        from backends import _features
+        from backends import CAM_SHAPES, MOTORS, _features
 
-        # lerobot-rollout 과 같은 방식으로 robot 특징 → dataset 특징 (BiSOFollower 와 같은 키·순서)
-        feats = _features()
+        self.single = single
+        if single:  # 팔 한 대 정책 (SOFollower: "{motor}.pos" 6 + 카메라 top / wrist). 오른팔 자리에 끼운다.
+            self.single_keys = [f"{m}.pos" for m in MOTORS]
+            feats = {
+                **dict.fromkeys(self.single_keys, float),
+                "top": CAM_SHAPES["top"],
+                "wrist": CAM_SHAPES["right_wrist"],
+            }
+            act_keys, self.robot_type = self.single_keys, "so101_follower"
+        else:
+            # lerobot-rollout 과 같은 방식으로 robot 특징 → dataset 특징 (BiSOFollower 와 같은 키·순서)
+            feats, act_keys, self.robot_type = _features(), JOINT_KEYS, "bi_so_follower"
         self.features = {
-            **hw_to_dataset_features(dict.fromkeys(JOINT_KEYS, float), "action"),
+            **hw_to_dataset_features(dict.fromkeys(act_keys, float), "action"),
             **hw_to_dataset_features(feats, "observation"),
         }
         exp = {k for k, v in cfg.input_features.items()}
@@ -258,12 +270,19 @@ class Policy:
                 # 그래서 이미지 전처리(3캠 float 변환·정규화, CPU 10ms+)를 건너뛴다. 결과는 동일.
                 a = self.policy.select_action(None)
             else:
-                frame = build_dataset_frame(self.features, obs, prefix="observation")
-                x = prepare_observation_for_inference(frame, self.device, self.task, "bi_so_follower")
+                o = obs
+                if self.single:  # 12관절 관측 → 오른팔 6관절 + top / 오른손목 카메라
+                    o = {k: obs[f"right_{k}"] for k in self.single_keys}
+                    o.update(top=obs["top"], wrist=obs["right_wrist"])
+                frame = build_dataset_frame(self.features, o, prefix="observation")
+                x = prepare_observation_for_inference(frame, self.device, self.task, self.robot_type)
                 x = self.pre(x)
                 a = self.policy.select_action(x)
             a = self.post(a)
         ad = make_robot_action(a.squeeze(0).cpu(), self.features)
+        if self.single:  # 왼팔 칸은 관측값 그대로 (보내지 않음), 오른팔 칸 = 정책 출력
+            left = [obs[k] for k in JOINT_KEYS[:6]] if obs is not None else [0.0] * 6
+            return np.array(left + [ad[k] for k in self.single_keys], dtype=np.float32)
         return np.array([ad[k] for k in JOINT_KEYS], dtype=np.float32)
 
     def warmup(self, n=2):
@@ -313,6 +332,7 @@ def rewind_plan(
        untilt_deg 미만이던 마지막 자세로 untilt_s 동안 바로 보간한다. 붓는 동안 기울인 채 버틴 구간을
        거꾸로 재생하지 않으므로 붓기가 곧바로 멈춘다 (순수 되감기는 시뮬에서 7~20s 걸림).
     2) 되감기: 그 자세부터 경로를 거꾸로 speed 배속으로 (프레임 사이 선형 보간).
+    3) 마무리: 붓기 시작 때 관측한 자세로 0.5s.
     """
     P = np.asarray(sent_path, dtype=np.float32)
     cut = len(P) - 1  # 되감기 시작 프레임
@@ -333,6 +353,11 @@ def rewind_plan(
         i = min(int(f), len(rev) - 1)
         j = min(i + 1, len(rev) - 1)
         back.append(rev[i] + (rev[j] - rev[i]) * (f - i))
+    # 마무리: 첫 '명령'이 아니라 붓기 시작 때 '관측한' 자세로 0.5s 보간. 첫 명령은 정책 첫 출력이라 시작 자세와
+    # 다를 수 있다 (학습 안 된 한 팔 정책 시험에서 최대 24° 차이로 멈춤을 확인).
+    start = np.asarray(path[0], dtype=np.float32)
+    m = int(0.5 * FPS)
+    back += [rev[-1] + (start - rev[-1]) * (i / m) for i in range(1, m + 1)]
     return np.asarray(untilt + back, dtype=np.float32), len(untilt)
 
 
@@ -384,7 +409,9 @@ def rewind(args, robot, path, sent_path, det, keys, rows):
         untilt_s=n_untilt / FPS,
         duration_s=dur,
         path_s=len(path) / FPS,
-        end_dev_deg=float(np.abs(prev[ARM] - np.asarray(sent_path[0])[ARM]).max()),
+        end_dev_deg=float(
+            np.abs(prev[ARM] - np.asarray(path[0])[ARM]).max()
+        ),  # 마지막 명령 vs 시작 관측 자세
     )
 
 
@@ -481,7 +508,10 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                 t_inf = time.perf_counter()
                 ref = prev_sent if prev_sent is not None else state
                 sent = clamp_step(cmd, ref, args.max_step_deg, args.max_step_gripper)
-                robot.send_action({k: float(v) for k, v in zip(JOINT_KEYS, sent)})
+                out = robot.send_action({k: float(v) for k, v in zip(JOINT_KEYS, sent)})
+                # 실제로 보낸 값을 되감기 경로로 (lerobot --max-relative-target 이 자르면 반환값이 다르다)
+                if isinstance(out, dict) and all(k in out for k in JOINT_KEYS):
+                    sent = np.array([out[k] for k in JOINT_KEYS], dtype=np.float32)
                 sent_path.append(sent)
                 t_act = time.perf_counter()
                 jump = np.abs(sent - prev_sent) if prev_sent is not None else np.zeros(12, np.float32)
@@ -671,7 +701,7 @@ def load_thresholds(path: Path) -> dict:
 
 
 def make_robot(args):
-    from backends import DatasetReplayRobot, RealRobot, ReplayMujocoRobot, install_calib
+    from backends import DatasetReplayRobot, RealRobot, ReplayMujocoRobot, SingleArmRobot, install_calib
 
     clock = "step" if args.fast else args.replay_clock
     if args.backend == "replay":
@@ -679,6 +709,18 @@ def make_robot(args):
     if args.backend == "replay+mujoco":
         return ReplayMujocoRobot(
             args.episode, Path(args.dataset), clock=clock, render=args.sim_render, video_path=args.sim_video
+        )
+    if args.backend == "single":
+        if not (args.top_cam and args.wrist_cam):
+            raise SystemExit("single 백엔드는 --top-cam 과 --wrist-cam 이 필요")
+        return SingleArmRobot(
+            args.single_port,
+            args.single_id,
+            args.top_cam,
+            args.wrist_cam,
+            fourcc=args.fourcc,
+            max_relative_target=args.max_relative_target,
+            keep_torque=args.keep_torque,
         )
     if args.calib_left or args.calib_right:
         install_calib(args.robot_id, args.calib_left, args.calib_right)
@@ -706,7 +748,7 @@ def parse_args(argv=None):
 
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     g = ap.add_argument_group("백엔드")
-    g.add_argument("--backend", choices=["real", "replay", "replay+mujoco"], default="replay")
+    g.add_argument("--backend", choices=["real", "replay", "replay+mujoco", "single"], default="replay")
     g.add_argument("--episode", type=int, default=0, help="replay 에피소드 번호")
     g.add_argument("--dataset", default=str(DATASET))
     g.add_argument("--replay-clock", choices=["step", "wall"], default="step")
@@ -727,6 +769,10 @@ def parse_args(argv=None):
     g.add_argument("--left-cam", default=os.environ.get("LEFT_CAM"))
     g.add_argument("--right-cam", default=os.environ.get("RIGHT_CAM"))
     g.add_argument("--fourcc", default=os.environ.get("CAM_FOURCC") or None)
+    g = ap.add_argument_group("single 로봇 (팔 한 대 리허설: 그 팔을 오른팔=붓는 팔 자리에 둠)")
+    g.add_argument("--single-port", default="/dev/follower1")
+    g.add_argument("--single-id", default="follower1", help="캘리브레이션 so_follower/<id>.json")
+    g.add_argument("--wrist-cam", default=None, help="그 팔의 손목 카메라 (top 은 --top-cam)")
     g.add_argument("--calib-left", default=os.environ.get("CALIB_LEFT"), help="예: follower1 (복사 원본)")
     g.add_argument("--calib-right", default=os.environ.get("CALIB_RIGHT"), help="예: follower2")
     g.add_argument(
@@ -804,9 +850,10 @@ def parse_args(argv=None):
     g.add_argument("--stt-model", default="small")
     g.add_argument(
         "--stt-mode",
-        choices=("vad", "enter"),
-        default="vad",
-        help="vad = Enter 없이 말소리 자동 감지 (기본), enter = Enter 로 녹음 시작/끝",
+        choices=("stream", "vad", "enter"),
+        default="stream",
+        help="stream = 최근 2초를 0.5초마다 받아써 바로 반응 (기본, 소음에 강함), "
+        "vad = 말 끝까지 녹음 후 인식 (소음이 계속되면 최대 녹음 길이까지 기다림), enter = Enter 로 녹음 시작/끝",
     )
     g.add_argument(
         "--vad-level",
@@ -819,10 +866,10 @@ def parse_args(argv=None):
     g.add_argument("--mic", default=None)
     g.add_argument("--no-voice-stop", action="store_true", help="붓는 동안 음성 정지 끔 (키보드 정지만)")
     g.add_argument(
-        "--voice-stop-silence-ms",
-        type=int,
-        default=500,
-        help="음성 정지: 이 시간 무음이면 말 끝 (짧을수록 빨리 반응)",
+        "--voice-stop-hop-s",
+        type=float,
+        default=0.5,
+        help="음성 정지: 최근 2s 를 이 간격마다 확인 (짧을수록 빨리 반응, GPU 더 씀)",
     )
     g.add_argument("--auto-start", action="store_true", help="명령 없이 바로 1회 붓고 종료 (시험용)")
     g.add_argument("--test-stop-at", type=float, default=None, help="시험용: 이 시각(s)에 정지 키 입력 흉내")
@@ -834,7 +881,10 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     th = load_thresholds(Path(args.thresholds))
-    assert th["joint"].endswith("right_wrist_roll.pos"), th["joint"]
+    # 감지기는 state[10] = 오른손목 roll 을 본다. 한 팔(single)은 그 팔을 오른팔 자리에 넣으므로 "wrist_roll.pos".
+    assert th["joint"] == ("wrist_roll.pos" if args.backend == "single" else "right_wrist_roll.pos"), th[
+        "joint"
+    ]
     if args.timeout_s is None:
         args.timeout_s = float(th["timeout_suggest_s"])
     det_cfg = PourDetectorConfig(
@@ -862,6 +912,7 @@ def main(argv=None):
         args.temporal_ensemble,
         args.task,
         sync_exact=args.sync_exact,
+        single=args.backend == "single",
     )
     cfg = policy.cfg
     print(
@@ -886,7 +937,7 @@ def main(argv=None):
         from voice_stop import VoiceStop
 
         print("[음성정지] 붓는 동안 듣는 프로세스 시작 (Whisper 로딩) ...")
-        voice_stop = VoiceStop(model=args.stt_model, mic=args.mic, silence_ms=args.voice_stop_silence_ms)
+        voice_stop = VoiceStop(model=args.stt_model, mic=args.mic, hop_s=args.voice_stop_hop_s)
         if not voice_stop.start():
             voice_stop.close()
             voice_stop = None
@@ -910,7 +961,11 @@ def main(argv=None):
         print(f"[로봇] {args.backend} 연결 ...")
         robot.connect()
         run_idx, announce = 0, True
-        if args.stt_mode == "vad" and hasattr(commander, "listen_auto"):
+        if args.stt_mode == "stream" and hasattr(commander, "listen_stream"):
+
+            def listen():
+                return commander.listen_stream()
+        elif args.stt_mode == "vad" and hasattr(commander, "listen_auto"):
 
             def listen():
                 return commander.listen_auto(vad_level=args.vad_level, silence_ms=args.silence_ms)
@@ -955,7 +1010,7 @@ def main(argv=None):
         session["error"] = traceback.format_exc()
     finally:
         try:
-            if args.backend == "real" and not args.no_return_home and robot.is_connected:
+            if args.backend in ("real", "single") and not args.no_return_home and robot.is_connected:
                 print("[로봇] 초기 자세로 복귀 (3s) ...")
                 robot.return_to_initial()
         except Exception as e:
