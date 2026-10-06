@@ -24,7 +24,8 @@
   상태 기계·완료 감지기·TTS·키 정지·명령 클램프·로그를 끼운다.
 
 [상태 기계]
-  IDLE   : TTS ready → 명령 대기. 기본 --stt-mode vad = Enter 없이 말소리 자동 감지 ("물 따라줘"),
+  IDLE   : TTS ready → 명령 대기. 기본 --stt-mode stream = 최근 2초를 0.5초마다 받아써 바로 반응 ("물 따라줘"),
+           (시작은 겹치는 창 2번 연속으로 나와야 함), --stt-mode vad = 말 끝까지 녹음 후 인식,
            --stt-mode enter = Enter 로 녹음 시작/끝. 어느 쪽이든 p/s/q + Enter 키보드 입력도 받음.
            안내 음성이 끝난 뒤에만 듣는다 ("물을 따르겠습니다" 의 '따르' 를 스스로 명령으로 듣지 않게).
   POUR   : pour 명령 → TTS start → policy/processor/감지기 리셋 → 30fps 제어 루프
@@ -481,7 +482,10 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                 t_inf = time.perf_counter()
                 ref = prev_sent if prev_sent is not None else state
                 sent = clamp_step(cmd, ref, args.max_step_deg, args.max_step_gripper)
-                robot.send_action({k: float(v) for k, v in zip(JOINT_KEYS, sent)})
+                out = robot.send_action({k: float(v) for k, v in zip(JOINT_KEYS, sent)})
+                # 실제로 보낸 값을 되감기 경로로 (lerobot --max-relative-target 이 자르면 반환값이 다르다)
+                if isinstance(out, dict) and all(k in out for k in JOINT_KEYS):
+                    sent = np.array([out[k] for k in JOINT_KEYS], dtype=np.float32)
                 sent_path.append(sent)
                 t_act = time.perf_counter()
                 jump = np.abs(sent - prev_sent) if prev_sent is not None else np.zeros(12, np.float32)
@@ -804,9 +808,10 @@ def parse_args(argv=None):
     g.add_argument("--stt-model", default="small")
     g.add_argument(
         "--stt-mode",
-        choices=("vad", "enter"),
-        default="vad",
-        help="vad = Enter 없이 말소리 자동 감지 (기본), enter = Enter 로 녹음 시작/끝",
+        choices=("stream", "vad", "enter"),
+        default="stream",
+        help="stream = 최근 2초를 0.5초마다 받아써 바로 반응 (기본, 소음에 강함), "
+        "vad = 말 끝까지 녹음 후 인식 (소음이 계속되면 최대 녹음 길이까지 기다림), enter = Enter 로 녹음 시작/끝",
     )
     g.add_argument(
         "--vad-level",
@@ -910,7 +915,11 @@ def main(argv=None):
         print(f"[로봇] {args.backend} 연결 ...")
         robot.connect()
         run_idx, announce = 0, True
-        if args.stt_mode == "vad" and hasattr(commander, "listen_auto"):
+        if args.stt_mode == "stream" and hasattr(commander, "listen_stream"):
+
+            def listen():
+                return commander.listen_stream()
+        elif args.stt_mode == "vad" and hasattr(commander, "listen_auto"):
 
             def listen():
                 return commander.listen_auto(vad_level=args.vad_level, silence_ms=args.silence_ms)

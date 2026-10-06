@@ -501,6 +501,71 @@ def record_until_enter(
 # --------------------------------------------------------------------------- #
 # 녹음: VAD 모드 (원본 그대로)
 # --------------------------------------------------------------------------- #
+class StreamWindows:
+    """마이크를 별도 스레드가 계속 읽고, hop 마다 최근 window 오디오를 (최근 1초에 말소리가 있으면) 내준다.
+
+    '말이 끝날 때까지 녹음' 은 팬·서보 소음이 계속되면 말 끝을 못 찾아 최대 녹음 길이를 다 채운 뒤에야
+    반응한다 (실측: 대기 명령 10s, 붓는 중 정지 4.3s). 겹치는 창은 소음과 무관하게 ≈ hop + 변환 시간에 반응하고,
+    명령어가 창 경계에서 잘려도 다음 창에 온전히 들어간다. 읽기를 스레드로 나눈 이유: 변환(≈0.3s) 동안
+    읽기를 멈추면 입력 버퍼가 넘쳐 소리가 유실된다 ("정지했습니다" → "제했습니다").
+
+        with StreamWindows(mic, vad) as sw:
+            pcm = sw.poll()      # bytes (16 kHz int16) 또는 None, 기다리지 않음
+    """
+
+    def __init__(self, mic, vad, frame_ms=30, window_s=2.0, hop_s=0.5, recent_s=1.0, min_speech=0.3):
+        import threading
+        from collections import deque
+
+        self.mic, self.vad, self.frame_ms = mic, vad, frame_ms
+        self.n_win = max(1, int(window_s * 1000 / frame_ms))
+        self.n_hop = max(1, int(hop_s * 1000 / frame_ms))
+        self.n_recent = max(1, min(self.n_win, int(recent_s * 1000 / frame_ms)))
+        self.min_speech = min_speech
+        self.ring: deque = deque(maxlen=self.n_win)
+        self.lock, self.stop_ev = threading.Lock(), threading.Event()
+        self.count, self.last, self.error = 0, 0, None
+        self._thread = threading.Thread(target=self._read, daemon=True)
+
+    def _read(self):
+        try:
+            for f in self.frames:
+                sp = self.vad.is_speech(f, SAMPLE_RATE)
+                with self.lock:
+                    self.ring.append((f, sp))
+                    self.count += 1
+                if self.stop_ev.is_set():
+                    return
+        except Exception as e:  # 마이크 끊김 등 → poll 쪽에서 다시 던진다
+            self.error = e
+
+    def __enter__(self):
+        self.frames = self.mic.frames(self.frame_ms)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.stop_ev.set()
+        self._thread.join(timeout=1.0)
+        self.frames.close()
+
+    def clear(self):
+        with self.lock:
+            self.ring.clear()
+
+    def poll(self) -> bytes | None:
+        if self.error is not None:
+            raise self.error
+        with self.lock:
+            if self.count - self.last < self.n_hop or len(self.ring) < self.n_win:
+                return None
+            self.last = self.count
+            win = list(self.ring)
+        if sum(sp for _, sp in win[-self.n_recent :]) < self.min_speech * self.n_recent:
+            return None
+        return b"".join(f for f, _ in win)
+
+
 def import_webrtcvad():
     try:
         import warnings
@@ -924,6 +989,50 @@ class VoiceCommander:
             if mic.peak == 0:  # chunk_s 동안 완전 무음 → 마이크 문제일 가능성만 알린다
                 log("[안내] 마이크 입력이 완전히 0(무음)입니다.\n" + mic_help())
 
+    def listen_stream(
+        self, vad_level: int = 3, window_s: float = 2.0, hop_s: float = 0.5, pour_hits: int = 2
+    ) -> CommandResult:
+        """실시간에 가깝게: 최근 window_s 를 hop_s 마다 받아써 명령이 나오면 바로 반환 (StreamWindows).
+
+        말이 끝나기를 기다리지 않아 소음 속에서도 반응이 ≈1s. 키보드 p/s/q + Enter 도 받는다 (키가 우선).
+        안전: 정지는 1번에 반환, 시작(pour)은 겹치는 창 연속 pour_hits 번 나와야 반환 (환각 한 번에 로봇이 움직이지 않게).
+        Whisper 힌트 문장은 끈다 (잡음 → 힌트 문장 환각이 명령이 되므로).
+        """
+        if getattr(self, "_stream_vad", None) is None:
+            self._stream_vad = import_webrtcvad().Vad(vad_level)
+        log(f'\n[대기] 말씀하세요 ("물 따라줘")  |  {KEY_HINT}')
+        kb_alive, hits = True, 0
+        with StreamWindows(self.mic, self._stream_vad, self.frame_ms, window_s, hop_s) as sw:
+            while True:
+                if kb_alive and line_ready(self.stdin, 0.02):
+                    line = self._readline()
+                    if line == "":  # EOF (파이프 등) → 키보드 감시 끔
+                        kb_alive = False
+                    else:
+                        action, cmd = parse_enter_input(line)
+                        if action in ("command", "quit"):
+                            log(f"[키보드] {line.strip()!r} -> {cmd}")
+                            return CommandResult(line.strip(), cmd, "keyboard")
+                elif not kb_alive:
+                    time.sleep(0.02)
+                pcm = sw.poll()
+                if pcm is None:
+                    continue
+                audio = pcm_to_float(pcm)
+                if np.abs(audio).max() * 32768 < self.min_peak:
+                    continue
+                t = time.perf_counter()
+                with torch_threads(self.num_threads):
+                    text = transcribe(self.model, audio, self.fp16, None, self.temperature, self.sample_len)
+                stt_s = time.perf_counter() - t
+                cmd = match_command(text)
+                if text:
+                    log(f'[듣는 중] "{text}" -> {cmd} ({stt_s:.2f}s)')
+                hits = hits + 1 if cmd == POUR else 0
+                if cmd == STOP or (cmd == POUR and hits >= pour_hits):
+                    log(f"[명령] {cmd}")
+                    return CommandResult(text, cmd, "voice", window_s, stt_s)
+
     def _finish(self, pcm: bytes, mic: Microphone) -> CommandResult:
         log(f"[녹음] 종료 ({len(pcm) / 2 / SAMPLE_RATE:.1f}초) - 텍스트 변환 중...")
         if self.save_wav_path:
@@ -957,8 +1066,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--mode",
         default="enter",
-        choices=("enter", "vad"),
-        help="enter: Enter로 녹음 시작/종료 (시연 권장), vad: 말소리 자동 감지",
+        choices=("enter", "vad", "stream"),
+        help="enter: Enter로 녹음 시작/종료, vad: 말소리 감지 후 말 끝까지 녹음, "
+        "stream: 최근 2초를 0.5초마다 받아써 바로 반응 (소음에 강함)",
     )
     p.add_argument("--wav", type=Path, nargs="+", default=None, help="마이크 대신 wav 파일들을 인식")
     p.add_argument("--model", default="small", help="Whisper 모델 크기 (tiny/base/small/medium/large/turbo)")
@@ -1046,6 +1156,8 @@ def main(argv: list[str] | None = None) -> int:
             r = (
                 vc.listen()
                 if args.mode == "enter"
+                else vc.listen_stream()
+                if args.mode == "stream"
                 else vc.listen_vad(vad, continue_vad, args.silence_ms, args.timeout)
             )
             if r is not None and r.command == QUIT:
