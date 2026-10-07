@@ -320,7 +320,14 @@ REWIND_ON = ("manual", "quit", "timeout", "ctrl_c", "voice")  # voice = 붓는 �
 
 
 def rewind_plan(
-    path, sent_path, det, untilt_deg: float, untilt_s: float, speed: float
+    path,
+    sent_path,
+    det,
+    untilt_deg: float,
+    untilt_s: float,
+    speed: float,
+    home_tol: float | None = None,
+    grip_tol: float = 10.0,
 ) -> tuple[np.ndarray, int]:
     """되감기 목표 궤적 (프레임마다 12관절) 과 '물통 세우기' 단계 길이(프레임).
 
@@ -333,6 +340,9 @@ def rewind_plan(
        거꾸로 재생하지 않으므로 붓기가 곧바로 멈춘다 (순수 되감기는 시뮬에서 7~20s 걸림).
     2) 되감기: 그 자세부터 경로를 거꾸로 speed 배속으로 (프레임 사이 선형 보간).
     3) 마무리: 붓기 시작 때 관측한 자세로 0.5s.
+    home_tol 을 주면 2) 는 마지막으로 시작 자세 근처(팔 관절 모두 home_tol 이내, 그리퍼 grip_tol 이내 = 빈 손)였던
+    프레임까지만 되감는다.
+    정책이 한 바퀴 돌아 시작 자세로 왔다가 다시 움직인 경우, 그 앞의 경로까지 거꾸로 따라가지 않는다.
     """
     P = np.asarray(sent_path, dtype=np.float32)
     cut = len(P) - 1  # 되감기 시작 프레임
@@ -345,7 +355,15 @@ def rewind_plan(
                 cut = int(low[-1])
                 m = max(int(untilt_s * FPS), 1)
                 untilt = [P[-1] + (P[cut] - P[-1]) * (i / m) for i in range(1, m + 1)]
-    rev = P[cut::-1]
+    lo = 0
+    if home_tol is not None:
+        obs = np.asarray(path, dtype=np.float32)[: cut + 1]
+        near = np.where(
+            (np.abs(obs[:, ARM] - obs[0, ARM]).max(1) < home_tol)
+            & (np.abs(obs[:, GRIP] - obs[0, GRIP]).max(1) < grip_tol)
+        )[0]
+        lo = int(near[-1]) if len(near) else 0
+    rev = P[lo : cut + 1][::-1]
     n = int((len(rev) - 1) / speed) + 1
     back = []
     for k in range(n):
@@ -370,7 +388,16 @@ def rewind(args, robot, path, sent_path, det, keys, rows):
     from lerobot.utils.robot_utils import precise_sleep
 
     speed = max(args.rewind_speed, 1e-3)
-    plan, n_untilt = rewind_plan(path, sent_path, det, args.untilt_deg, args.untilt_s, speed)
+    plan, n_untilt = rewind_plan(
+        path,
+        sent_path,
+        det,
+        args.untilt_deg,
+        args.untilt_s,
+        speed,
+        home_tol=args.home_tol_deg,
+        grip_tol=args.grip_tol,
+    )
     prev = np.asarray(sent_path[-1], dtype=np.float32)  # 현재 모터 목표 → 첫 명령이 튀지 않음
     t0, result, k = time.perf_counter(), "home", -1
     print(
@@ -482,7 +509,9 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
     prev_sent = None
     stop_reason, quit_req = None, False
     done_t = None
-    still_n = 0  # DONE 뒤 팔이 거의 안 움직인 연속 프레임 수
+    still_n = 0  # 시작 자세 근처에서 팔·그리퍼가 거의 안 움직인 연속 프레임 수
+    home_n = 0  # 위 + 그리퍼도 시작 때 값 근처 (붓기 없이 복귀 판단용)
+    left_home = False  # 팔이 시작 자세에서 크게 벗어난 적이 있는지 (붓기 없이 한 바퀴 돌고 돌아왔는지 판단)
     roll_prev = [None, 0.0]  # [직전 원래 roll, 누적 보정(±360)]
     last_status = -1.0
     warn_n, last_warn = 0, -10.0
@@ -505,7 +534,18 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
             print("[키] stdin 이 터미널이 아님 → Space/s/q 정지 비활성 (Ctrl+C 만 가능)")
 
         def _loop():
-            nonlocal stop_reason, quit_req, done_t, last_status, warn_n, last_warn, step, prev_sent, still_n
+            nonlocal \
+                stop_reason, \
+                quit_req, \
+                done_t, \
+                last_status, \
+                warn_n, \
+                last_warn, \
+                step, \
+                prev_sent, \
+                still_n, \
+                home_n, \
+                left_home
             evs = [say("start", 0.0)]
             while True:
                 loop_t0 = time.perf_counter()
@@ -596,14 +636,24 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                 # ---- 종료 조건 ----
                 # DONE 뒤: 정책이 정리(내려놓기·복귀)를 끝내고 멈췄으면 종료. 시연은 모두 정지 자세로 끝난다.
                 # 그리퍼도 본다: 팔은 멈춘 채 그리퍼만 열어 내려놓는 구간이 있다. 시작 자세 근처일 때만 끝으로 본다.
-                if done_t is not None and len(path) > 1:
+                # DONE 전: 붓지 않고(기울기 부족 등) 한 바퀴 돌아 시작 자세로 돌아와 멈췄으면 거기서 끝낸다.
+                # 안 그러면 정책이 처음부터 다시 집으러 가고, 시간초과 되감기가 그 전체를 거꾸로 따라간다
+                # (실제 follower1 60k: 26s 에 복귀 → 다시 집기 → 40s 시간초과 → 되감기 40s 분량).
+                if len(path) > 1:
                     d = np.abs(path[-1] - path[-2])
                     still = d[ARM].max() < args.settle_deg and d[GRIP].max() < args.settle_deg
-                    near_home = np.abs(path[-1][ARM] - path[0][ARM]).max() < args.home_tol_deg
-                    still_n = still_n + 1 if (still and near_home) else 0
+                    dev = np.abs(path[-1][ARM] - path[0][ARM]).max()
+                    left_home = left_home or dev > args.home_tol_deg + args.away_deg
+                    # 그리퍼도 시작 때 값 근처여야 (컵을 쥔 채 시작 자세를 지나가는 건 '돌아옴'이 아님)
+                    grip_home = np.abs(path[-1][GRIP] - path[0][GRIP]).max() < args.grip_tol
+                    still_n = still_n + 1 if (still and dev < args.home_tol_deg) else 0
+                    home_n = home_n + 1 if (still and dev < args.home_tol_deg and grip_home) else 0
                 if done_t is not None and t - done_t >= 2.0 and still_n >= args.settle_s * FPS:
                     stop_reason = "settled"
                     evs.append(say("placed", t))  # 정리(컵 내려놓기·복귀)까지 끝남
+                elif done_t is None and left_home and home_n >= args.settle_s * FPS:
+                    stop_reason = "no_pour"  # 이미 시작 자세 → 되감기 안 함
+                    evs.append(say("stopped", t))
                 elif done_t is not None and t - done_t >= args.post_done_s:
                     stop_reason = "done"
                 elif done_t is None and t >= args.timeout_s:
@@ -863,6 +913,18 @@ def parse_args(argv=None):
     g.add_argument("--settle-s", type=float, default=1.0, help="DONE 뒤 팔이 이 시간 동안 멈춰 있으면 종료")
     g.add_argument(
         "--settle-deg", type=float, default=0.5, help="'멈춤' 판정: 프레임당 관절 변화(도·그리퍼) 상한"
+    )
+    g.add_argument(
+        "--away-deg",
+        type=float,
+        default=30.0,
+        help="DONE 전 팔이 home-tol+이 값 넘게 벗어났다가 빈 손으로 시작 자세에 돌아와 멈추면 종료 (no_pour, 되감기 없음)",
+    )
+    g.add_argument(
+        "--grip-tol",
+        type=float,
+        default=10.0,
+        help="'빈 손 = 시작 때 그리퍼 값' 판정 폭 (no_pour 종료, 되감기 시작점)",
     )
     g.add_argument(
         "--home-tol-deg",
