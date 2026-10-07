@@ -429,6 +429,42 @@ def stats(x):
     )
 
 
+class DemoPolicy:
+    """--policy demo: 모델 대신 재생 중인 데이터셋 에피소드의 action 을 그대로 낸다 (open-loop, replay 전용).
+    체크포인트가 오기 전에 감지·TTS·정착·정지/되감기 흐름을 새 작업 데이터로 미리 시험하는 용도."""
+
+    path = "demo"
+
+    def __init__(self):
+        from types import SimpleNamespace
+
+        self.cfg = SimpleNamespace(type="demo", chunk_size=1, n_action_steps=1, temporal_ensemble_coeff=None)
+        self.robot, self.k = None, 0
+
+    def reset(self):
+        self.k = 0
+
+    def will_infer(self) -> bool:
+        return False
+
+    def warmup(self, n=2):
+        return [0.0] * n
+
+    def __call__(self, obs: dict) -> np.ndarray:
+        a = self.robot.demo_action
+        out = a[min(self.k, len(a) - 1)].copy()
+        self.k += 1
+        return out
+
+
+def dataset_is_single(dataset: Path) -> bool:
+    """한 팔(so101_follower) 데이터셋인지: observation.state 이름이 "{motor}.pos" 6개."""
+    from backends import MOTORS
+
+    info = json.loads((Path(dataset) / "meta" / "info.json").read_text())
+    return info["features"]["observation.state"]["names"] == [f"{m}.pos" for m in MOTORS]
+
+
 def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voice_stop=None):
     """제어 루프 1회. (요약 dict, quit 여부) 반환. 행 로그는 메모리에 모았다가 끝나고 CSV 로 쓴다."""
     from lerobot.utils.robot_utils import precise_sleep
@@ -786,7 +822,11 @@ def parse_args(argv=None):
     )
     g.add_argument("--no-return-home", action="store_true", help="종료 때 초기 자세 복귀 생략")
     g = ap.add_argument_group("정책")
-    g.add_argument("--policy", default=MODEL_REPO, help="HF repo id 또는 로컬 폴더")
+    g.add_argument(
+        "--policy",
+        default=MODEL_REPO,
+        help="HF repo id 또는 로컬 폴더. demo = 데이터셋 action 재생 (replay 전용, 모델 없이 흐름 시험)",
+    )
     g.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     g.add_argument("--n-action-steps", type=int, default=None, help="청크에서 실제 쓰는 개수 (학습값 100)")
     g.add_argument(
@@ -881,10 +921,12 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     th = load_thresholds(Path(args.thresholds))
-    # 감지기는 state[10] = 오른손목 roll 을 본다. 한 팔(single)은 그 팔을 오른팔 자리에 넣으므로 "wrist_roll.pos".
-    assert th["joint"] == ("wrist_roll.pos" if args.backend == "single" else "right_wrist_roll.pos"), th[
-        "joint"
-    ]
+    # 한 팔: 실제 팔(--backend single) 또는 한 팔 데이터셋을 재생하는 시뮬(replay / replay+mujoco)
+    single = args.backend == "single" or (args.backend != "real" and dataset_is_single(Path(args.dataset)))
+    if args.policy == "demo" and args.backend not in ("replay", "replay+mujoco"):
+        raise SystemExit("--policy demo 는 replay / replay+mujoco 전용 (데이터셋 action 재생)")
+    # 감지기는 state[10] = 오른손목 roll 을 본다. 한 팔은 그 팔을 오른팔 자리에 넣으므로 "wrist_roll.pos".
+    assert th["joint"] == ("wrist_roll.pos" if single else "right_wrist_roll.pos"), th["joint"]
     if args.timeout_s is None:
         args.timeout_s = float(th["timeout_suggest_s"])
     det_cfg = PourDetectorConfig(
@@ -905,14 +947,18 @@ def main(argv=None):
 
         torch.set_num_threads(args.threads)
     print(f"[정책] {args.policy} 로딩 (device={args.device}) ...")
-    policy = Policy(
-        args.policy,
-        args.device,
-        args.n_action_steps,
-        args.temporal_ensemble,
-        args.task,
-        sync_exact=args.sync_exact,
-        single=args.backend == "single",
+    policy = (
+        DemoPolicy()
+        if args.policy == "demo"
+        else Policy(
+            args.policy,
+            args.device,
+            args.n_action_steps,
+            args.temporal_ensemble,
+            args.task,
+            sync_exact=args.sync_exact,
+            single=single,
+        )
     )
     cfg = policy.cfg
     print(
@@ -930,6 +976,8 @@ def main(argv=None):
         print(f"[경고] temporal ensemble 은 매 프레임 추론 ({wt[-1] * 1e3:.0f}ms > 33ms) → 30fps 불가")
 
     robot = make_robot(args)
+    if isinstance(policy, DemoPolicy):
+        policy.robot = robot
     tts = make_tts(not args.no_tts)
     commander = None if args.auto_start else make_commander(not args.no_stt, args.stt_model, args.mic)
     voice_stop = None

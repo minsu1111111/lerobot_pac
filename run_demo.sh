@@ -5,6 +5,7 @@
 #   bash run_demo.sh --sim          # 하드웨어 없이: 데이터셋 영상 + MuJoCo 관절 (근사)
 #   bash run_demo.sh --replay       # 하드웨어 없이: 데이터셋 재생 (open-loop)
 #   bash run_demo.sh --single --policy <한 팔 체크포인트> --thresholds <한 팔 임계값>   # 팔 한 대 리허설
+#   bash run_demo.sh --sim --dataset <한 팔 데이터> --policy demo --thresholds <한 팔 임계값>  # 모델 없이 한 팔 시뮬
 #   bash run_demo.sh --replay --episode 5 --no-stt     # 나머지 인자는 pour_rollout.py 로 전달
 #
 # 실행기 전용 옵션: --sim | --replay | --single | --skip-check (오프라인 점검 생략) | --online (오프라인 환경변수 끔)
@@ -56,6 +57,9 @@ for i in "${!ARGS[@]}"; do
     --policy=*) CHECK_ARGS+=("${ARGS[$i]}") ;;
     --policy) CHECK_ARGS+=(--policy "${ARGS[$((i + 1))]:-}") ;;
   esac
+  # --policy demo (데이터셋 action 재생) 는 모델이 없으므로 오프라인 점검 생략
+  [ "${ARGS[$i]}" = "--policy=demo" ] && CHECK=0
+  [ "${ARGS[$i]}" = "--policy" ] && [ "${ARGS[$((i + 1))]:-}" = demo ] && CHECK=0
 done
 
 EXTRA=()
