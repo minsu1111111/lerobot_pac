@@ -258,6 +258,17 @@ class SingleArmRobot:
 # --------------------------------------------------------------------------- #
 # replay
 # --------------------------------------------------------------------------- #
+def _left_rest() -> np.ndarray:
+    """한 팔 시뮬에서 쓰지 않는 왼팔 자세: 양팔 데이터셋 첫 프레임 (없으면 0)."""
+    import pandas as pd
+
+    files = sorted((DATASET / "data").rglob("*.parquet"))
+    if not files:
+        return np.zeros(6, np.float32)
+    s = pd.read_parquet(files[0], columns=["observation.state"])["observation.state"].iloc[0]
+    return np.asarray(s, np.float32)[:6]
+
+
 class DatasetReplayRobot:
     """데이터셋 에피소드 한 개를 30fps 로봇처럼 흘려보낸다 (open-loop).
 
@@ -293,7 +304,11 @@ class DatasetReplayRobot:
         self.ep = ep
         self.length = int(ep["length"])
         names = self.meta.features["observation.state"]["names"]
-        assert names == JOINT_KEYS, names
+        # 한 팔 데이터셋(so101_follower: "{motor}.pos" 6, 카메라 top / wrist)은 그 팔을 오른팔 자리에 끼운다
+        # (SingleArmRobot 과 같은 규칙). 왼팔 = 양팔 데이터셋 첫 자세로 고정, 왼손목 카메라 = 빈 화면.
+        self.single = names == [f"{m}.pos" for m in MOTORS]
+        assert self.single or names == JOINT_KEYS, names
+        self.cam_src = {"top": "top", "right_wrist": "wrist"} if self.single else {c: c for c in CAM_SHAPES}
         self.state, self.demo_action = self._load_table()
         self._cv = threading.Condition()
         self._gen = 0  # restart 마다 증가 → 옛 디코딩 스레드 종료
@@ -319,10 +334,12 @@ class DatasetReplayRobot:
         )
         df = df[df.episode_index == self.episode].sort_values("frame_index")
         assert len(df) == self.length
-        return (
-            np.stack(df["observation.state"].values).astype(np.float32),
-            np.stack(df["action"].values).astype(np.float32),
-        )
+        state = np.stack(df["observation.state"].values).astype(np.float32)
+        action = np.stack(df["action"].values).astype(np.float32)
+        if self.single:
+            left = np.broadcast_to(_left_rest(), (len(df), 6))
+            state, action = np.hstack([left, state]), np.hstack([left, action])
+        return state, action
 
     def _decode(self, gen: int):
         try:
@@ -345,8 +362,8 @@ class DatasetReplayRobot:
                     return
             hi = min(lo + self.BLOCK, self.length)
             block = {}
-            for c in CAM_SHAPES:
-                key = f"observation.images.{c}"
+            for c, src in self.cam_src.items():
+                key = f"observation.images.{src}"
                 f0 = self.ep[f"videos/{key}/from_timestamp"]
                 path = self.root / self.meta.get_video_file_path(self.episode, key)
                 ts = [f0 + i / self.fps for i in range(lo, hi)]
@@ -356,7 +373,10 @@ class DatasetReplayRobot:
                 if self._gen != gen:
                     return
                 for i in range(lo, hi):
-                    self.frames[i] = {c: np.ascontiguousarray(block[c][i - lo]) for c in CAM_SHAPES}
+                    f = {c: np.ascontiguousarray(block[c][i - lo]) for c in self.cam_src}
+                    for c in CAM_SHAPES.keys() - f.keys():  # 한 팔: 왼손목 카메라 없음
+                        f[c] = np.zeros(CAM_SHAPES[c], np.uint8)
+                    self.frames[i] = f
                 self.ready = hi
                 self._cv.notify_all()
 
@@ -461,6 +481,10 @@ class ReplayMujocoRobot(DatasetReplayRobot):
         if self.sim_state is None:  # 붓기 시작마다 데이터셋 첫 프레임 자세로 리셋
             self.sim_state = np.asarray(self.sim.reset(self.state[i]), dtype=np.float32)
             self.sim.place_props_from_trajectory(self.demo_action)  # 컵·물통을 시연에서 잡은 자리에 세움
+            if (
+                self.single and "cup" in self.sim.props
+            ):  # 한 팔: 오른손 소품(물통 모양)이 잡는 컵 역할, 왼쪽 컵은 치움
+                self.sim.d.mocap_pos[self.sim.props["cup"]["mocap"]] = [0.0, 2.0, -1.0]
         obs = {k: float(v) for k, v in zip(JOINT_KEYS, self.sim_state)}
         obs.update(self._frame(i))
         self.sim.inset = obs.get("top")  # 영상 오른쪽 위: 정책이 보는 top 카메라

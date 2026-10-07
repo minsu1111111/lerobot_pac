@@ -204,8 +204,22 @@ Tailscale 로 데스크탑에서 직접 가져오는 방법은 [`train/fetch_che
 2. **학습** (데스크탑): `lerobot-train --policy.type=act --dataset.repo_id=<데이터> --save_freq=5000 --save_checkpoint_to_hub=true --policy.repo_id=<새 이름> --policy.private=true ...`
 3. **기준값** (노트북, 기본 `thresholds.json` 은 건드리지 않음):
    `python analysis/joint_analysis.py --dataset <데이터 폴더> --joint wrist_roll.pos --out ~/UNITA_PAC2026/local/outputs/single_th`
-4. **롤아웃**: `bash run_demo.sh --single --policy <체크포인트> --thresholds ~/UNITA_PAC2026/local/outputs/single_th/summary.json`
+4. **시뮬 (모델 오기 전)**: 수집한 데이터를 그대로 시뮬로 재생해 감지·TTS·정착·정지/되감기를 먼저 확인.
+   `--policy demo` = 데이터셋 action 재생(모델 대신), 체크포인트가 오면 `--policy <체크포인트>` 로 바꾼다.
+   `--dataset` 가 한 팔 데이터셋이면 자동으로 오른팔 자리에 끼운다 (왼팔 고정, 시뮬의 오른손 소품 = 컵).
+   ```bash
+   bash run_demo.sh --sim --dataset <데이터 폴더> --episode 0 --policy demo \
+     --thresholds ~/UNITA_PAC2026/local/outputs/single_th/summary.json --timeout-s 40 --home-tol-deg 25 \
+     --auto-start --no-stt --test-stop-at 14 --sim-render window   # 14초에 정지 → 되감기
+   ```
+5. **롤아웃**: `bash run_demo.sh --single --policy <체크포인트> --thresholds ~/UNITA_PAC2026/local/outputs/single_th/summary.json --timeout-s 40 --home-tol-deg 25`
    → 붓는 중 "멈춰" 로 정지·되감기 확인.
+   `--home-tol-deg 25`: 리허설 데이터 50개 중 3개가 손목 꺾임 17~21° 차이로 끝나 기본 15° 로는 "놓았습니다" 대신 시간초과로 끝남.
+   25° 로 50/50 정착, 모두 에피소드 끝 1.5초 이내 (중간에 일찍 끝난 것 없음, 시뮬 `--policy demo`).
+   붓지 못하고(기울기 부족 등) 빈 손으로 시작 자세에 돌아와 1초 멈추면 거기서 끝난다 (`no_pour`, 되감기 없음).
+   되감기는 마지막으로 빈 손·시작 자세였던 곳까지만 (실제 60k 실패 1회: 40s 계속 + 되감기 59s → 26.5s 종료, 되감기 20s).
+
+대회 당일도 같은 순서다: 수집 → 기준값 → 시뮬(`--policy demo`) → 체크포인트로 시뮬 → 하드웨어.
 
 ## 시험 도구
 
