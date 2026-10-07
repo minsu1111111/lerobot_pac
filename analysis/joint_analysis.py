@@ -103,9 +103,11 @@ def main():
         f"\n[관절 비교] 기준선=처음 {args.base_sec:.1f}s 중앙값, 진폭=|편차| 최대, 횟수=|편차|>진폭50% 구간 수"
     )
     print(f"{'joint':16s} {'진폭 중앙값':>10s} {'횟수=1 비율':>11s} {'횟수 중앙값':>10s}")
+    # 양팔(12관절)이면 오른팔 = 뒤 6개, 한 팔(6관절) 데이터셋이면 그 6개 그대로
+    off, pre = (6, "right_") if len(names) == 12 else (0, "")
     joint_rows = []
     for j, n in enumerate(JOINTS):
-        col = 6 + j
+        col = off + j
         amps, exc = [], []
         for v in eps.values():
             x = v["state"][:, col]
@@ -115,16 +117,16 @@ def main():
             exc.append(excursions(x, b, 0.5 * a))
         exc = np.array(exc)
         joint_rows.append((n, np.median(amps), (exc == 1).mean(), np.median(exc)))
-        print(f"right_{n:10s} {np.median(amps):10.1f} {(exc == 1).mean():11.0%} {np.median(exc):10.0f}")
+        print(f"{pre}{n:10s} {np.median(amps):10.1f} {(exc == 1).mean():11.0%} {np.median(exc):10.0f}")
 
     fig, axs = plt.subplots(2, 3, figsize=(15, 7), sharex=True)
     for j, (ax, n) in enumerate(zip(axs.flat, JOINTS)):
         for v in eps.values():
-            x = v["state"][:, 6 + j]
+            x = v["state"][:, off + j]
             ax.plot(np.arange(len(x)) / FPS, x, lw=0.6, color=C_STATE, alpha=0.12)
         r = joint_rows[j]
         ax.set_title(
-            f"right_{n}   진폭 {r[1]:.0f} · 큰 움직임 1회 {r[2]:.0%}", fontsize=10, color=INK, loc="left"
+            f"{pre}{n}   진폭 {r[1]:.0f} · 큰 움직임 1회 {r[2]:.0%}", fontsize=10, color=INK, loc="left"
         )
         style(ax)
     for ax in axs[-1]:
