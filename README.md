@@ -209,11 +209,13 @@ Tailscale 로 데스크탑에서 직접 가져오는 방법은 [`train/fetch_che
    `--dataset` 가 한 팔 데이터셋이면 자동으로 오른팔 자리에 끼운다 (왼팔 고정, 시뮬의 오른손 소품 = 컵).
    ```bash
    bash run_demo.sh --sim --dataset <데이터 폴더> --episode 0 --policy demo \
-     --thresholds ~/UNITA_PAC2026/local/outputs/single_th/summary.json --timeout-s 40 \
+     --thresholds ~/UNITA_PAC2026/local/outputs/single_th/summary.json --timeout-s 40 --home-tol-deg 25 \
      --auto-start --no-stt --test-stop-at 14 --sim-render window   # 14초에 정지 → 되감기
    ```
-5. **롤아웃**: `bash run_demo.sh --single --policy <체크포인트> --thresholds ~/UNITA_PAC2026/local/outputs/single_th/summary.json --timeout-s 40`
+5. **롤아웃**: `bash run_demo.sh --single --policy <체크포인트> --thresholds ~/UNITA_PAC2026/local/outputs/single_th/summary.json --timeout-s 40 --home-tol-deg 25`
    → 붓는 중 "멈춰" 로 정지·되감기 확인.
+   `--home-tol-deg 25`: 리허설 데이터 50개 중 3개가 손목 꺾임 17~21° 차이로 끝나 기본 15° 로는 "놓았습니다" 대신 시간초과로 끝남.
+   25° 로 50/50 정착, 모두 에피소드 끝 1.5초 이내 (중간에 일찍 끝난 것 없음, 시뮬 `--policy demo`).
 
 대회 당일도 같은 순서다: 수집 → 기준값 → 시뮬(`--policy demo`) → 체크포인트로 시뮬 → 하드웨어.
 
