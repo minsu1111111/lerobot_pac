@@ -25,5 +25,33 @@
     "done_t_median": 27.683333333333334,
     "end_after_done_median": 10.233333333333336
   },
+  "start_pose": [
+    -1.890109896659851,
+    -98.28571319580078,
+    95.64835357666016,
+    -101.05494689941406,
+    1.582417607307434,
+    1.262191653251648,
+    -0.17582418024539948,
+    -99.56044006347656,
+    93.80220031738281,
+    -96.61538696289062,
+    2.4175825119018555,
+    2.031850576400757
+  ],
+  "start_pose_names": [
+    "left_shoulder_pan.pos",
+    "left_shoulder_lift.pos",
+    "left_elbow_flex.pos",
+    "left_wrist_flex.pos",
+    "left_wrist_roll.pos",
+    "left_gripper.pos",
+    "right_shoulder_pan.pos",
+    "right_shoulder_lift.pos",
+    "right_elbow_flex.pos",
+    "right_wrist_flex.pos",
+    "right_wrist_roll.pos",
+    "right_gripper.pos"
+  ],
   "timeout_suggest_s": 63.0
 }
