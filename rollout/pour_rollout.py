@@ -788,8 +788,14 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                     stop_reason = "settled"
                     evs.append(say("placed", t))  # 정리(컵 내려놓기·복귀)까지 끝남
                 elif done_t is None and left_home and home_n >= args.settle_s * FPS:
-                    stop_reason = "no_pour"  # 이미 시작 자세 → 되감기 안 함
-                    evs.append(say("stopped", t))
+                    if det.tilt_step is not None:
+                        # 붓다가 정지 → "계속" 뒤 정책이 다시 기울이지 않고 내려놓고 돌아온 경우: 이미 부었으니 정상 종료
+                        # (양팔 시뮬: 거의 다 부은 25s 에 정지 → 계속 → 다시 안 붓고 복귀)
+                        stop_reason = "settled"
+                        evs.append(say("placed", t))
+                    else:
+                        stop_reason = "no_pour"  # 이미 시작 자세 → 되감기 안 함
+                        evs.append(say("stopped", t))
                 elif done_t is not None and t - done_t >= args.post_done_s:
                     stop_reason = "done"
                 elif done_t is None and t >= args.timeout_s:
