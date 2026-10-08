@@ -546,6 +546,15 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
         subtitle.update(text=tts.say(key) or key, t=t)
         return ev(f"tts:{key}", t)
 
+    def home_refs() -> list[np.ndarray]:
+        refs = [path[0]]
+        sp = getattr(args, "start_pose", None)
+        if sp is not None and len(sp) in (6, 12):
+            r = np.array(path[0], dtype=np.float32)  # 한 팔이면 왼팔 칸은 그대로
+            r[12 - len(sp) :] = sp
+            refs.append(r)
+        return refs
+
     def read_state():
         obs = robot.get_observation()
         state = np.array([obs[k] for k in JOINT_KEYS], dtype=np.float32)
@@ -601,7 +610,7 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                     precise_sleep(1 / FPS - dt)
         if not args.fast:
             time.sleep(max(0.0, args.pause_say_s - (time.perf_counter() - t0)))
-        ev(say("stopped", t), t)
+        say("stopped", t)
         tts.wait(timeout=8.0)
         time.sleep(0.3)  # 스피커 잔향
         if voice_stop is not None:
@@ -763,10 +772,16 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                 if len(path) > 1:
                     d = np.abs(path[-1] - path[-2])
                     still = d[ARM].max() < args.settle_deg and d[GRIP].max() < args.settle_deg
-                    dev = np.abs(path[-1][ARM] - path[0][ARM]).max()
-                    left_home = left_home or dev > args.home_tol_deg + args.away_deg
+                    left_home = left_home or (
+                        np.abs(path[-1][ARM] - path[0][ARM]).max() > args.home_tol_deg + args.away_deg
+                    )
+                    # '시작 자세' = 붓기 시작 때 자세 또는 시연의 쉬는 자세 (기준값 파일 start_pose) 중 가까운 쪽.
+                    # 팔을 다른 자세에 둔 채 시작해도 정책은 학습한 쉬는 자세로 돌아간다 (follower1 실측: 34° 차이로
+                    # 정착 판정이 안 돼 "컵을 놓았습니다" 없이 25s 뒤 끝남).
+                    homes = home_refs()
+                    dev = min(np.abs(path[-1][ARM] - h[ARM]).max() for h in homes)
                     # 그리퍼도 시작 때 값 근처여야 (컵을 쥔 채 시작 자세를 지나가는 건 '돌아옴'이 아님)
-                    grip_home = np.abs(path[-1][GRIP] - path[0][GRIP]).max() < args.grip_tol
+                    grip_home = min(np.abs(path[-1][GRIP] - h[GRIP]).max() for h in homes) < args.grip_tol
                     still_n = still_n + 1 if (still and dev < args.home_tol_deg) else 0
                     home_n = home_n + 1 if (still and dev < args.home_tol_deg and grip_home) else 0
                 if done_t is not None and t - done_t >= 2.0 and still_n >= args.settle_s * FPS:
@@ -836,6 +851,7 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
         ):
             t_rw = (step / FPS) if args.fast else time.perf_counter() - t_start
             events_all.append((round(t_rw, 3), "rewind:start"))
+            tts.say("going_back")  # "원래 자리로 돌아가겠습니다." (돌아가 / 시간초과 / 종료)
             rewind_info = rewind(args, robot, path, sent_path, det, keys, rows)
             events_all.append((round(t_rw + rewind_info["duration_s"], 3), f"rewind:{rewind_info['result']}"))
             if rewind_info["result"] == "home":
@@ -1131,6 +1147,7 @@ def main(argv=None):
     assert th["joint"] == ("wrist_roll.pos" if single else "right_wrist_roll.pos"), th["joint"]
     if args.timeout_s is None:
         args.timeout_s = float(th["timeout_suggest_s"])
+    args.start_pose = th.get("start_pose")  # 시연의 쉬는 자세 (정착 판정에 함께 씀, 없으면 붓기 시작 자세만)
     det_cfg = PourDetectorConfig(
         tilt_off=th["tilt_off"],
         return_off=th["return_off"],
