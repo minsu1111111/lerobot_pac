@@ -18,13 +18,15 @@ PHRASES: dict[str, str] = {
     "done": "목표량까지 따랐습니다.",
     "placed": "컵을 놓았습니다. 맛있게 드세요.",
     "stopped": "정지했습니다.",
+    "paused": "정지했습니다. 돌아갈까요, 계속할까요?",
+    "resume": "이어서 따르겠습니다.",
     "returned": "원래 자리로 돌아왔습니다.",
     "retry": "잘 못 들었어요. 다시 말씀해 주세요.",
     "timeout": "시간이 초과되어 동작을 마칩니다.",
 }
 
 # 큐가 꽉 차거나 정리될 때도 버리면 안 되는 문구
-CRITICAL_KEYS = frozenset({"done", "placed", "stopped", "returned", "timeout"})
+CRITICAL_KEYS = frozenset({"done", "placed", "stopped", "paused", "returned", "timeout"})
 
 MANIFEST = "phrases.json"  # generate_wavs.py --phrases 가 wav 폴더에 함께 쓰는 문구 목록
 
