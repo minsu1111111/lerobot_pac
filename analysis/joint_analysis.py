@@ -230,6 +230,12 @@ def main():
         )
         r.to_csv(args.out / f"detections_{src}.csv", index=False)
 
+    # 시연의 시작(=끝) 자세: 롤아웃이 '정리 끝, 시작 자세로 돌아옴'을 판단할 때 붓기 시작 자세와 함께 본다.
+    # (팔을 다른 자세에 둔 채 시작하면 정책은 학습한 쉬는 자세로 돌아가 정착 판정이 안 됐다: follower1 실측)
+    summary["start_pose"] = [
+        float(x) for x in np.median(np.stack([v["state"][0] for v in eps.values()]), axis=0)
+    ]
+    summary["start_pose_names"] = list(names)
     to_max = summary["state"]["done_t_max"]
     summary["timeout_suggest_s"] = float(np.ceil(to_max * 1.3))
     print(
