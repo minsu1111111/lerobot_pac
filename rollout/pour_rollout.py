@@ -306,6 +306,14 @@ class Policy:
 # --------------------------------------------------------------------------- #
 # 한 번의 붓기
 # --------------------------------------------------------------------------- #
+def match_pause(text: str) -> str | None:
+    """일시정지 중 받아쓴 문장 → back / pour / resume / stop (고르는 말이 정지어보다 우선)."""
+    sys.path.insert(0, str(GITHUB / "stt"))
+    import voice_command as vc
+
+    return vc.match_command(text, priority=vc.PAUSE_PRIORITY)
+
+
 def clamp_step(cmd, ref, max_deg, max_grip):
     """직전 명령(ref) 대비 프레임당 변화량 제한. 몸통 관절은 도, 그리퍼는 0~100 단위."""
     lim = np.full(12, np.inf, np.float32)
@@ -607,6 +615,8 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
         while choice is None:
             k = keys.poll() or ""
             heard = voice_stop.poll_command() if voice_stop is not None else None
+            if heard:  # 일시정지 우선순위로 다시 판정 ("그만 돌아가" → back)
+                heard = (match_pause(heard[1]) or heard[0], heard[1])
             waited = time.perf_counter() - tw
             if "q" in k or "Q" in k:
                 choice = "quit"
