@@ -665,3 +665,33 @@ def test_listen_auto_keyboard_while_waiting(monkeypatch):
     assert (r.command, r.source) == ("pour", "keyboard")
     vc = make_auto([N] * 1000, stdin=LateStdin("q\n", after=2))
     assert vc.listen_auto(vad=AmpVad(), continue_vad=AmpVad(), chunk_s=5).command == "quit"
+
+
+def test_synonyms_idle():
+    for text in ["컵 좀 채워줘", "물 담아줘", "목말라", "목이 말라요"]:
+        assert v.match_command(text) == v.POUR, text
+    for text in ["잠시만요", "기다려", "이제 됐어", "충분해", "안 돼", "위험해", "멈출래"]:
+        assert v.match_command(text) == v.STOP, text
+    assert v.match_command("계속 따라줘") == v.POUR  # 대기 중엔 그대로 시작
+
+
+def test_pause_back_resume():
+    def m(t):
+        return v.match_command(t, priority=v.PAUSE_PRIORITY)
+
+    for text in [
+        "돌아가",
+        "제자리로",
+        "원위치",
+        "취소해줘",
+        "되돌려줘",
+        "내려놔",
+        "안 할래",
+        "필요 없어",
+        "그만 돌아가",
+    ]:
+        assert m(text) == v.BACK, text
+    for text in ["계속 해줘", "이어서 해줘", "마저 해줘", "진행해", "다시 해줘", "괜찮아"]:
+        assert m(text) == v.RESUME, text
+    assert m("마저 따라줘") == v.POUR  # 일시정지 중 pour = 계속
+    assert m("멈춰") == v.STOP  # 이미 멈춤 → 무시
