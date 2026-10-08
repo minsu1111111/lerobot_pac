@@ -52,7 +52,7 @@ def _worker(conn, model: str, device: str, mic, window_s: float, hop_s: float, v
                     r = cmd.transcribe_pcm(pcm)
                     if r.text:
                         conn.send(("heard", r.text, r.command, r.stt_s, time.time()))
-                        if r.command == vc.STOP:  # 같은 소리를 다음 창에서 또 보내지 않게
+                        if r.command is not None:  # 같은 소리를 다음 창에서 또 보내지 않게
                             sw.clear()
         except Exception as e:
             conn.send(("error", f"{type(e).__name__}: {e}"))
@@ -94,16 +94,23 @@ class VoiceStop:
 
     def poll(self) -> str | None:
         """정지어를 들었으면 받아쓴 문장, 아니면 None (기다리지 않음)."""
+        heard = self.poll_command()
+        return heard[1] if heard and heard[0] == "stop" else None
+
+    def poll_command(self) -> tuple[str, str] | None:
+        """들은 명령 중 첫 번째 (command, 문장), 없으면 None. 붓는 중 정지 뒤 "돌아가"/"계속" 고르기에도 쓴다."""
         heard = None
         while self.armed and self.conn.poll():
             msg = self.conn.recv()
             if msg[0] == "heard":
                 _, text, command, stt_s, _ = msg
-                print(f"\n[음성정지] '{text}' → {command} ({stt_s:.2f}s)")
-                if command == "stop":
-                    heard = text
+                print(f"\n[음성] '{text}' → {command} ({stt_s:.2f}s)")
+                if command is not None and (
+                    heard is None or command == "stop"
+                ):  # 정지가 섞여 있으면 정지 우선
+                    heard = (command, text)
             elif msg[0] == "error":
-                print(f"\n[음성정지] 오류 → 키보드 정지만: {msg[1]}")
+                print(f"\n[음성] 오류 → 키보드만: {msg[1]}")
                 self.ok = self.armed = False
         return heard
 
