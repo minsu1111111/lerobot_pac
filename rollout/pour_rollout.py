@@ -559,7 +559,8 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
         t0 = time.perf_counter()
         if voice_stop is not None:  # 안내 문장("…돌아갈까요, 계속할까요?")이 명령으로 들리지 않게 잠시 끔
             voice_stop.disarm()
-        ev(say("paused", t), t)
+        # 안내는 세우기가 끝난 뒤에: "멈춰" 직후 바로 말하면 어색하다 (사용자 의견). 멈추고 세우는 동작이
+        # 먼저 반응이 되고, 최소 --pause-say-s 뒤에 묻는다.
         plan, n_untilt = rewind_plan(path, sent_path, det, args.untilt_deg, args.untilt_s, 1.0)
         # 세우기 뒤 최대 1s: 팔이 마지막 목표를 따라올 때까지 같은 목표 유지 (관측이 아직 기울어 있으면
         # 되감기가 세우기를 한 번 더 한다)
@@ -590,6 +591,9 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                 dt = time.perf_counter() - lt
                 if dt < 1 / FPS:
                     precise_sleep(1 / FPS - dt)
+        if not args.fast:
+            time.sleep(max(0.0, args.pause_say_s - (time.perf_counter() - t0)))
+        ev(say("paused", t), t)
         tts.wait(timeout=8.0)
         time.sleep(0.3)  # 스피커 잔향
         if voice_stop is not None:
@@ -1052,6 +1056,12 @@ def parse_args(argv=None):
         "rewind = 바로 되감기, freeze = 그 자리에서 멈춤",
     )
     g.add_argument("--pause-s", type=float, default=20.0, help="ask: 이 시간 동안 아무 말 없으면 되감기 복귀")
+    g.add_argument(
+        "--pause-say-s",
+        type=float,
+        default=0.8,
+        help="ask: 정지 뒤 '돌아갈까요, 계속할까요?' 를 말하기까지 최소 시간 (물통 세우기가 더 길면 세운 뒤)",
+    )
     g.add_argument(
         "--test-pause-cmd",
         choices=["back", "resume"],
