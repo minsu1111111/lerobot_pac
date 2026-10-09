@@ -324,7 +324,14 @@ def clamp_step(cmd, ref, max_deg, max_grip):
     return ref + np.clip(cmd - ref, -lim, lim)
 
 
-REWIND_ON = ("manual", "quit", "timeout", "ctrl_c", "voice")  # voice = 붓는 중 "정지/멈춰/그만"
+REWIND_ON = (
+    "manual",
+    "quit",
+    "timeout",
+    "pour_timeout",
+    "ctrl_c",
+    "voice",
+)  # voice = 붓는 중 "정지/멈춰/그만"
 
 
 def rewind_plan(
@@ -582,6 +589,8 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
         # 세우기 뒤 최대 1s: 팔이 마지막 목표를 따라올 때까지 같은 목표 유지 (관측이 아직 기울어 있으면
         # 되감기가 세우기를 한 번 더 한다)
         hold = [plan[n_untilt - 1]] * FPS if n_untilt else []
+        pre_pause = prev_sent  # "계속" 때 이 자세(정지 직전 명령)로 다시 기울여 넘긴다
+        untilt_sent: list[np.ndarray] = []
         for i, target in enumerate(list(plan[:n_untilt]) + hold):
             if (
                 i >= n_untilt
@@ -597,6 +606,7 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                 sent = np.array([out[k] for k in JOINT_KEYS], dtype=np.float32)
             path.append(state)
             sent_path.append(sent)
+            untilt_sent.append(sent)
             prev_sent = sent
             row = dict(step=-1, t=t, event="pause_untilt")
             row.update({f"obs_{i}": float(v) for i, v in enumerate(state)})
@@ -642,10 +652,32 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
         print(f"[일시정지] → {choice} ({time.perf_counter() - t0:.1f}s 멈춤)")
         ev(f"pause:{choice}", t)
         if choice == "resume":
+            # 세웠던 물통을 정지 직전 자세로 되돌린 뒤 정책에 넘긴다. 세운 자세(붓는 위치에서 물통만 선 장면)는
+            # 시연에 없어서, 그대로 넘기면 정책이 다시 안 붓고 헤매거나 36s 동안 계속 기울였다 (실제 양팔 10/10).
+            say("resume", t)
+            if untilt_sent:
+                for target in list(reversed(untilt_sent))[1:] + [pre_pause]:
+                    lt = time.perf_counter()
+                    _, state = read_state()
+                    sent = clamp_step(target, prev_sent, args.max_step_deg, args.max_step_gripper)
+                    out = robot.send_action({k: float(v) for k, v in zip(JOINT_KEYS, sent)})
+                    if isinstance(out, dict) and all(k in out for k in JOINT_KEYS):
+                        sent = np.array([out[k] for k in JOINT_KEYS], dtype=np.float32)
+                    path.append(state)
+                    sent_path.append(sent)
+                    prev_sent = sent
+                    row = dict(step=-1, t=t, event="resume_retilt")
+                    row.update({f"obs_{i}": float(v) for i, v in enumerate(state)})
+                    row.update({f"cmd_{i}": float(v) for i, v in enumerate(sent)})
+                    rows.append(row)
+                    if not args.fast:
+                        dt = time.perf_counter() - lt
+                        if dt < 1 / FPS:
+                            precise_sleep(1 / FPS - dt)
+            elif det.state == POURING:  # 세우지 않았는데 POURING 이면 '다 따름' 오판 방지
+                det.state, det._cnt = READY, 0
             if not isinstance(policy, DemoPolicy):  # demo 는 멈춘 지점부터 이어서 재생 (reset 하면 처음부터)
                 policy.reset()  # 멈추기 전 행동 묶음을 버리고 지금 장면에서 새로 계산
-            if det.state == POURING:  # 세워서 기울기가 돌아온 걸 '다 따름'으로 보지 않게
-                det.state, det._cnt = READY, 0
             if not args.fast:  # 시간 초과(--timeout-s)는 멈춰 있던 시간을 빼고 센다
                 t_start += time.perf_counter() - t0
         return choice
@@ -695,7 +727,6 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                     choice = pause(t, keys)
                     if choice == "resume":
                         stop_reason = None
-                        evs.append(say("resume", t))
                         continue
                     if choice == "quit":
                         stop_reason, quit_req = "quit", True
@@ -799,6 +830,14 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                         evs.append(say("stopped", t))
                 elif done_t is not None and t - done_t >= args.post_done_s:
                     stop_reason = "done"
+                elif (
+                    det.state == POURING
+                    and det.tilt_step is not None
+                    and (det.step - det.tilt_step) / FPS > args.max_pour_s
+                ):
+                    # 시연 붓기는 12~21s. 정책이 기울인 채 멈추지 않으면 (실제: '계속' 뒤 36s) 멈추고 되감는다
+                    evs.append(say("timeout", t))
+                    stop_reason = "pour_timeout"
                 elif done_t is None and t >= args.timeout_s:
                     evs.append(say("timeout", t))
                     stop_reason = "timeout"
@@ -1102,6 +1141,12 @@ def parse_args(argv=None):
         default="ask",
         help="DONE 전 정지 때: ask = 세운 뒤 멈춰서 '돌아가'(되감기)/'계속 해줘'(이어서) 기다림, "
         "rewind = 바로 되감기, freeze = 그 자리에서 멈춤",
+    )
+    g.add_argument(
+        "--max-pour-s",
+        type=float,
+        default=30.0,
+        help="붓기(POURING)가 이 시간을 넘으면 정지·되감기 (대회 데이터 붓기 12~21s, 멈춘 시간은 빼고 셈)",
     )
     g.add_argument("--pause-s", type=float, default=20.0, help="ask: 이 시간 동안 아무 말 없으면 되감기 복귀")
     g.add_argument(
