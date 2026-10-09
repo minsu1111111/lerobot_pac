@@ -639,7 +639,7 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
             waited = time.perf_counter() - tw
             if "q" in k or "Q" in k:
                 choice = "quit"
-            elif any(c in k for c in " rRsS") or (heard and heard[0] == "back"):
+            elif any(c in k for c in " rRsS") or (heard and heard[0] in ("back", "home")):
                 choice = "back"
             elif "c" in k or "C" in k or (heard and heard[0] in ("resume", "pour")):
                 choice = "resume"
@@ -1322,6 +1322,13 @@ def main(argv=None):
                 )
                 if r.command == "quit":
                     break
+                if r.command == "home":  # "초기자세로" → 프로그램 시작 때 자세로 3s 보간 (실제 팔만)
+                    tts.say("home")
+                    if hasattr(robot, "return_to_initial") and robot.is_connected:
+                        robot.return_to_initial()
+                    tts.wait(timeout=8.0)
+                    announce = True
+                    continue
                 if r.command != "pour":
                     # 자동 감지는 소음에도 켜질 수 있어, 받아쓴 말이 있을 때만 다시 말해 달라고 한다
                     if r.command is None and (args.stt_mode == "enter" or (r.text or "").strip()):
