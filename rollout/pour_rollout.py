@@ -642,7 +642,8 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
         print(f"[일시정지] → {choice} ({time.perf_counter() - t0:.1f}s 멈춤)")
         ev(f"pause:{choice}", t)
         if choice == "resume":
-            policy.reset()  # 멈추기 전 행동 묶음을 버리고 지금 장면에서 새로 계산
+            if not isinstance(policy, DemoPolicy):  # demo 는 멈춘 지점부터 이어서 재생 (reset 하면 처음부터)
+                policy.reset()  # 멈추기 전 행동 묶음을 버리고 지금 장면에서 새로 계산
             if det.state == POURING:  # 세워서 기울기가 돌아온 걸 '다 따름'으로 보지 않게
                 det.state, det._cnt = READY, 0
             if not args.fast:  # 시간 초과(--timeout-s)는 멈춰 있던 시간을 빼고 센다
