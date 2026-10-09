@@ -463,12 +463,18 @@ class ReplayMujocoRobot(DatasetReplayRobot):
         render: str = "none",
         video_path: str | None = None,
         hold_last: bool = True,
+        spacing: float = 0.45,
+        yaw_deg: float = 30.0,
     ):
         super().__init__(episode, dataset, clock, fps, hold_last=hold_last)
         sys.path.insert(0, str(GITHUB / "sim"))
         from mujoco_bi_so101 import MujocoBiSO101  # 다른 담당 모듈 (sim/)
 
-        self.sim = MujocoBiSO101(render=render, video_path=video_path, fps=fps, physics=True)
+        # spacing/yaw_deg: 두 팔 받침 사이 거리(m)·안쪽 회전(°). 화면에 보이는 배치만 바뀐다
+        # (감지·되감기·정책 입력은 관절값과 데이터셋 영상이라 영향 없음).
+        self.sim = MujocoBiSO101(
+            render=render, video_path=video_path, fps=fps, physics=True, spacing=spacing, yaw_deg=yaw_deg
+        )
         self.sim_state = None
 
     def restart(self):

@@ -942,7 +942,13 @@ def make_robot(args):
         return DatasetReplayRobot(args.episode, Path(args.dataset), clock=clock)
     if args.backend == "replay+mujoco":
         return ReplayMujocoRobot(
-            args.episode, Path(args.dataset), clock=clock, render=args.sim_render, video_path=args.sim_video
+            args.episode,
+            Path(args.dataset),
+            clock=clock,
+            render=args.sim_render,
+            video_path=args.sim_video,
+            spacing=args.sim_spacing,
+            yaw_deg=args.sim_yaw,
         )
     if args.backend == "single":
         if not (args.top_cam and args.wrist_cam):
@@ -990,6 +996,15 @@ def parse_args(argv=None):
         "--fast", action="store_true", help="잠 안 자고 최대 속도 (시간 = step/30, replay 전용 측정용)"
     )
     g.add_argument("--sim-render", choices=["none", "window", "offscreen"], default="none")
+    g.add_argument(
+        "--sim-spacing",
+        type=float,
+        default=0.45,
+        help="시뮬 두 팔 받침 사이 거리(m). 기본 0.45 = 9/20 데이터 추정. 10/9 리그 탑 카메라 기준 추정 ≈0.32",
+    )
+    g.add_argument(
+        "--sim-yaw", type=float, default=30.0, help="시뮬 두 팔을 안쪽으로 돌린 각도(°). 10/9 리그 추정 ≈0"
+    )
     g.add_argument("--sim-video", default=None, help="replay+mujoco 영상 저장 경로 (offscreen)")
     g = ap.add_argument_group("real 로봇")
     g.add_argument(
