@@ -1393,6 +1393,9 @@ def main(argv=None):
                     dict(t=time.time(), text=r.text, command=r.command, source=r.source, stt_s=r.stt_s)
                 )
                 if r.command == "quit":
+                    if r.source == "voice":  # "끝내줘" → 안내 후 종료 (초기 자세 복귀는 종료 처리에서)
+                        tts.say("bye")
+                        tts.wait(timeout=6.0)
                     break
                 if r.command == "home":  # "초기자세로" → 프로그램 시작 때 자세로 3s 보간 (실제 팔만)
                     tts.say("home")

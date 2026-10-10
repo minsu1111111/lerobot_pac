@@ -115,6 +115,8 @@ COMMANDS: dict[str, list[str]] = {
         "지말",
         # "됐어/충분/안돼/잠시/위험"은 대회장 대화에서 너무 자주 나와 붓는 중 오정지가 많아 뺐다 (10/10 실측).
     ],
+    # 대기 중 "끝내줘" → 프로그램 종료 (연속 2번 들려야). "끝내준다"(칭찬)는 제외어로 뺀다.
+    QUIT: ["끝내줘", "끝내자", "끝내", "종료", "프로그램꺼", "그만하자"],
     # 대기 중 "초기자세로" → 처음 자세로 복귀 (일시정지 중이면 "돌아가"와 같게 처리)
     HOME: [
         "초기자세",
@@ -172,6 +174,7 @@ COMMANDS: dict[str, list[str]] = {
 }
 # 매칭 전에 지우는 표현 (다른 뜻의 "따라"/"따르").
 COMMAND_EXCLUDE: dict[str, list[str]] = {
+    QUIT: ["끝내준", "끝내주", "끝내줬"],
     STOP: ["스토리", "스토어", "스토브", "스토킹"],
     # "물 따르는 건 잘해"처럼 설명하는 말(대회장 옆 대화에서 실제로 시작이 걸림)은 시작으로 치지 않는다
     POUR: [
@@ -194,11 +197,11 @@ COMMAND_EXCLUDE: dict[str, list[str]] = {
     ],
 }
 # 둘 다 나오면 앞쪽이 이긴다 (안전: stop 우선).
-COMMAND_PRIORITY: tuple[str, ...] = (STOP, HOME, BACK, POUR, RESUME)
+COMMAND_PRIORITY: tuple[str, ...] = (QUIT, STOP, HOME, BACK, POUR, RESUME)
 # 명령은 짧게 말한다. 받아쓴 문장(공백·문장부호 제외)이 이보다 길면 대화 속 단어로 보고 무시한다.
 # 대회장 실측: "여기 뭐예요 여기 따라줘", "물 좀 채워주도록 하겠습니다", "이렇게 하지 못하는 사람을 멈춰 이렇게" 가 명령으로 걸림.
 # 정지는 다급하게 길게 말할 수 있어 여유를 둔다 ("어 저거 물 쏟아진다 멈춰" = 13자).
-COMMAND_MAX_LEN: dict[str, int] = {STOP: 16, POUR: 9, HOME: 10, BACK: 10, RESUME: 10}
+COMMAND_MAX_LEN: dict[str, int] = {STOP: 16, QUIT: 8, POUR: 9, HOME: 10, BACK: 10, RESUME: 10}
 # 붓는 중 정지한 뒤(일시정지)에는 "그만 돌아가" 처럼 정지어가 섞여도 고르는 말이 이긴다 (이미 멈춰 있음).
 PAUSE_PRIORITY: tuple[str, ...] = (HOME, BACK, POUR, RESUME, STOP)
 
@@ -1117,10 +1120,12 @@ class VoiceCommander:
                     log(f'[듣는 중] "{text}" -> {cmd} ({stt_s:.2f}s)')
                 # 로봇을 움직이는 명령(시작·초기자세)은 같은 명령이 연속 pour_hits 번 들려야 반환
                 hits = (
-                    hits + 1 if cmd in (POUR, HOME) and cmd == last_cmd else (1 if cmd in (POUR, HOME) else 0)
+                    hits + 1
+                    if cmd in (POUR, HOME, QUIT) and cmd == last_cmd
+                    else (1 if cmd in (POUR, HOME, QUIT) else 0)
                 )
                 last_cmd = cmd
-                if cmd == STOP or (cmd in (POUR, HOME) and hits >= pour_hits):
+                if cmd == STOP or (cmd in (POUR, HOME, QUIT) and hits >= pour_hits):
                     log(f"[명령] {cmd}")
                     return CommandResult(text, cmd, "voice", window_s, stt_s)
 
