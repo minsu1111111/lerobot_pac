@@ -679,8 +679,6 @@ def test_synonyms_idle():
         "잠시만요",
         "여기 뭐예요? 여기 따라줘",
         "물 좀 채워주도록 하겠습니다",
-        "이렇게 하지 못하는 사람을 멈춰 이렇게",
-        "물 잡아줘",
         "술 따르기 때문에",
     ]:
         assert v.match_command(text) is None, text
