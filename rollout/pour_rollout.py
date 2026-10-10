@@ -676,8 +676,11 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                             precise_sleep(1 / FPS - dt)
             elif det.state == POURING:  # 세우지 않았는데 POURING 이면 '다 따름' 오판 방지
                 det.state, det._cnt = READY, 0
-            if not isinstance(policy, DemoPolicy):  # demo 는 멈춘 지점부터 이어서 재생 (reset 하면 처음부터)
-                policy.reset()  # 멈추기 전 행동 묶음을 버리고 지금 장면에서 새로 계산
+            # 물통을 정지 직전 자세로 되돌렸으면 정책의 남은 행동 묶음(ACT 큐)을 그대로 이어서 실행한다.
+            # reset 하면 다시 기울인 장면만 보고 새로 계산해 1~2s 만에 세워 버렸다 (실제 10k·90k: 붓기 3~5s).
+            # 되돌리지 않은 경우(기울지 않았을 때 정지)는 지금 장면에서 새로 계산.
+            if not untilt_sent and not isinstance(policy, DemoPolicy):
+                policy.reset()
             if not args.fast:  # 시간 초과(--timeout-s)는 멈춰 있던 시간을 빼고 센다
                 t_start += time.perf_counter() - t0
         return choice
