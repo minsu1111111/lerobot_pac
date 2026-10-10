@@ -507,6 +507,66 @@ class DemoPolicy:
         return out
 
 
+class TopRecorder:
+    """실제 로봇의 탑 카메라 영상을 롤아웃 내내 mp4 로 저장 (발표 영상용). 롤아웃이 카메라를 잡고 있어 다른
+    프로그램으로는 못 찍으므로, 카메라 객체의 최신 프레임(read_latest)을 별도 스레드가 30fps 로 받아 쓴다."""
+
+    def __init__(self, robot, path: Path, fps: int = FPS):
+        import threading
+
+        self.cam = self._find_cam(robot)
+        self.path, self.fps, self.n = path, fps, 0
+        self._stop = threading.Event()
+        self._th = threading.Thread(target=self._run, daemon=True) if self.cam is not None else None
+
+    @staticmethod
+    def _find_cam(robot):
+        inner = getattr(robot, "robot", None) or getattr(robot, "arm", None)
+        for holder in (inner, getattr(inner, "left_arm", None), getattr(inner, "right_arm", None)):
+            cams = getattr(holder, "cameras", None) or {}
+            if "top" in cams:
+                return cams["top"]
+        return None
+
+    def start(self):
+        if self._th is None:
+            print("[녹화] 탑 카메라를 찾지 못해 녹화하지 않음 (실제 로봇 전용)")
+            return
+        self._th.start()
+        print(f"[녹화] 탑 카메라 → {self.path}")
+
+    def _run(self):
+        import cv2
+
+        writer, period, t_next = None, 1.0 / self.fps, time.perf_counter()
+        try:
+            while not self._stop.is_set():
+                try:
+                    frame = self.cam.read_latest(max_age_ms=1000)
+                except Exception:
+                    frame = None
+                if frame is not None:
+                    bgr = cv2.cvtColor(np.asarray(frame), cv2.COLOR_RGB2BGR)
+                    if writer is None:
+                        h, w = bgr.shape[:2]
+                        writer = cv2.VideoWriter(
+                            str(self.path), cv2.VideoWriter_fourcc(*"mp4v"), self.fps, (w, h)
+                        )
+                    writer.write(bgr)
+                    self.n += 1
+                t_next += period
+                time.sleep(max(0.0, t_next - time.perf_counter()))
+        finally:
+            if writer is not None:
+                writer.release()
+
+    def stop(self):
+        if self._th is not None and self._th.is_alive():
+            self._stop.set()
+            self._th.join(timeout=5)
+            print(f"[녹화] 저장 {self.path} ({self.n / self.fps:.0f}s)")
+
+
 def dataset_is_single(dataset: Path) -> bool:
     """한 팔(so101_follower) 데이터셋인지: observation.state 이름이 "{motor}.pos" 6개."""
     from backends import MOTORS
@@ -1203,6 +1263,11 @@ def parse_args(argv=None):
     g.add_argument("--test-stop-at", type=float, default=None, help="시험용: 이 시각(s)에 정지 키 입력 흉내")
     g.add_argument("--out", default=str(OUTPUTS / "rollout"))
     g.add_argument("--tag", default="")
+    g.add_argument(
+        "--record-top",
+        action="store_true",
+        help="실제 로봇: 탑 카메라 영상을 결과 폴더에 top_view.mp4 로 저장 (발표용)",
+    )
     return ap.parse_args(argv)
 
 
@@ -1278,6 +1343,7 @@ def main(argv=None):
         if not voice_stop.start():
             voice_stop.close()
             voice_stop = None
+    recorder = None
     session = dict(
         args=vars(args),
         thresholds=th,
@@ -1297,6 +1363,9 @@ def main(argv=None):
     try:
         print(f"[로봇] {args.backend} 연결 ...")
         robot.connect()
+        if args.record_top:
+            recorder = TopRecorder(robot, run_dir / "top_view.mp4")
+            recorder.start()
         run_idx, announce = 0, True
         if args.stt_mode == "stream" and hasattr(commander, "listen_stream"):
 
@@ -1359,6 +1428,8 @@ def main(argv=None):
                 robot.return_to_initial()
         except Exception as e:
             print(f"[로봇] 복귀 실패: {e}")
+        if recorder is not None:  # 초기 자세 복귀까지 담은 뒤, 카메라가 닫히기 전에 끝낸다
+            recorder.stop()
         try:
             robot.disconnect()
         except Exception as e:
