@@ -110,16 +110,10 @@ COMMANDS: dict[str, list[str]] = {
         "stop",
         "멈출",
         "잠깐",
-        "잠시",
         "기다려",
         "지마",
         "지말",
-        # 뜻이 같은 말 (붓는 중 "됐어"/"충분해" = 그만, "안 돼"/"위험해" = 멈춰). 오탐해도 멈출 뿐.
-        "됐어",
-        "충분",
-        "안돼",
-        "안되",
-        "위험",
+        # "됐어/충분/안돼/잠시/위험"은 대회장 대화에서 너무 자주 나와 붓는 중 오정지가 많아 뺐다 (10/10 실측).
     ],
     # 대기 중 "초기자세로" → 처음 자세로 복귀 (일시정지 중이면 "돌아가"와 같게 처리)
     HOME: [
@@ -201,6 +195,10 @@ COMMAND_EXCLUDE: dict[str, list[str]] = {
 }
 # 둘 다 나오면 앞쪽이 이긴다 (안전: stop 우선).
 COMMAND_PRIORITY: tuple[str, ...] = (STOP, HOME, BACK, POUR, RESUME)
+# 명령은 짧게 말한다. 받아쓴 문장(공백·문장부호 제외)이 이보다 길면 대화 속 단어로 보고 무시한다.
+# 대회장 실측: "여기 뭐예요 여기 따라줘", "물 좀 채워주도록 하겠습니다", "이렇게 하지 못하는 사람을 멈춰 이렇게" 가 명령으로 걸림.
+# 정지는 다급하게 길게 말할 수 있어 여유를 둔다 ("어 저거 물 쏟아진다 멈춰" = 13자).
+COMMAND_MAX_LEN: dict[str, int] = {STOP: 16, POUR: 9, HOME: 10, BACK: 10, RESUME: 10}
 # 붓는 중 정지한 뒤(일시정지)에는 "그만 돌아가" 처럼 정지어가 섞여도 고르는 말이 이긴다 (이미 멈춰 있음).
 PAUSE_PRIORITY: tuple[str, ...] = (HOME, BACK, POUR, RESUME, STOP)
 
@@ -277,8 +275,10 @@ def match_command(
     commands: dict[str, list[str]] = COMMANDS,
     exclude: dict[str, list[str]] = COMMAND_EXCLUDE,
     priority: tuple[str, ...] = COMMAND_PRIORITY,
+    max_len: dict[str, int] | None = COMMAND_MAX_LEN,
 ) -> str | None:
     """텍스트에서 명령을 찾는다 (순수 함수). 여러 개면 priority 순서(stop 우선).
+    max_len: 명령별 최대 글자 수(공백·문장부호 뺀). 넘으면 대화로 보고 무시 (기본 COMMAND_MAX_LEN).
 
     예) "물 따라줘" -> "pour", "그만 따라" -> "stop", "나를 따라와" -> None
     """
@@ -287,6 +287,8 @@ def match_command(
         t = norm
         for ex in exclude.get(cmd, []):
             t = t.replace(ex, "")
+        if max_len and len(norm) > max_len.get(cmd, 99):  # 긴 문장 = 대화 속 단어 → 명령 아님
+            continue
         if any(k.lower() in t for k in commands[cmd]):
             return cmd
         if cmd == POUR and WATER_RE.search(t) and WATER_REQUEST_RE.search(t):

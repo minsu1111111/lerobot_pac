@@ -78,7 +78,7 @@ STOP_PRIORITY_CASES = [  # pour 와 stop 이 같이 있으면 stop
     "물 따라줘 아니 멈춰",
     "멈춰 물 따라줘",
     "물 따라줘. 정지.",
-    "물 따라줘. 물 좀 부어 줄래? 멈춰. 그만.",  # 프롬프트 그대로 환각해도 stop
+    "물 따라줘. 멈춰. 그만.",  # 프롬프트 그대로 환각해도 stop
 ]
 NONE_CASES = [
     "",
@@ -670,8 +670,20 @@ def test_listen_auto_keyboard_while_waiting(monkeypatch):
 def test_synonyms_idle():
     for text in ["컵 좀 채워줘", "물 담아줘", "목말라", "목이 말라요"]:
         assert v.match_command(text) == v.POUR, text
-    for text in ["잠시만요", "기다려", "이제 됐어", "충분해", "안 돼", "위험해", "멈출래"]:
+    for text in ["잠깐만요", "기다려", "멈출래", "어 저거 물 쏟아진다 멈춰"]:
         assert v.match_command(text) == v.STOP, text
+    # 대회장 대화에서 잘못 걸린 말 (10/10 실측): 정지 동의어에서 빼거나 길어서 무시
+    for text in [
+        "다 됐어",
+        "진짜 안 돼",
+        "잠시만요",
+        "여기 뭐예요? 여기 따라줘",
+        "물 좀 채워주도록 하겠습니다",
+        "이렇게 하지 못하는 사람을 멈춰 이렇게",
+        "물 잡아줘",
+        "술 따르기 때문에",
+    ]:
+        assert v.match_command(text) is None, text
     assert v.match_command("계속 따라줘") == v.POUR  # 대기 중엔 그대로 시작
 
 
