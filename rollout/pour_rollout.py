@@ -324,7 +324,14 @@ def clamp_step(cmd, ref, max_deg, max_grip):
     return ref + np.clip(cmd - ref, -lim, lim)
 
 
-REWIND_ON = ("manual", "quit", "timeout", "ctrl_c", "voice")  # voice = 붓는 중 "정지/멈춰/그만"
+REWIND_ON = (
+    "manual",
+    "quit",
+    "timeout",
+    "pour_timeout",
+    "ctrl_c",
+    "voice",
+)  # voice = 붓는 중 "정지/멈춰/그만"
 
 
 def rewind_plan(
@@ -500,6 +507,66 @@ class DemoPolicy:
         return out
 
 
+class TopRecorder:
+    """실제 로봇의 탑 카메라 영상을 롤아웃 내내 mp4 로 저장 (발표 영상용). 롤아웃이 카메라를 잡고 있어 다른
+    프로그램으로는 못 찍으므로, 카메라 객체의 최신 프레임(read_latest)을 별도 스레드가 30fps 로 받아 쓴다."""
+
+    def __init__(self, robot, path: Path, fps: int = FPS):
+        import threading
+
+        self.cam = self._find_cam(robot)
+        self.path, self.fps, self.n = path, fps, 0
+        self._stop = threading.Event()
+        self._th = threading.Thread(target=self._run, daemon=True) if self.cam is not None else None
+
+    @staticmethod
+    def _find_cam(robot):
+        inner = getattr(robot, "robot", None) or getattr(robot, "arm", None)
+        for holder in (inner, getattr(inner, "left_arm", None), getattr(inner, "right_arm", None)):
+            cams = getattr(holder, "cameras", None) or {}
+            if "top" in cams:
+                return cams["top"]
+        return None
+
+    def start(self):
+        if self._th is None:
+            print("[녹화] 탑 카메라를 찾지 못해 녹화하지 않음 (실제 로봇 전용)")
+            return
+        self._th.start()
+        print(f"[녹화] 탑 카메라 → {self.path}")
+
+    def _run(self):
+        import cv2
+
+        writer, period, t_next = None, 1.0 / self.fps, time.perf_counter()
+        try:
+            while not self._stop.is_set():
+                try:
+                    frame = self.cam.read_latest(max_age_ms=1000)
+                except Exception:
+                    frame = None
+                if frame is not None:
+                    bgr = cv2.cvtColor(np.asarray(frame), cv2.COLOR_RGB2BGR)
+                    if writer is None:
+                        h, w = bgr.shape[:2]
+                        writer = cv2.VideoWriter(
+                            str(self.path), cv2.VideoWriter_fourcc(*"mp4v"), self.fps, (w, h)
+                        )
+                    writer.write(bgr)
+                    self.n += 1
+                t_next += period
+                time.sleep(max(0.0, t_next - time.perf_counter()))
+        finally:
+            if writer is not None:
+                writer.release()
+
+    def stop(self):
+        if self._th is not None and self._th.is_alive():
+            self._stop.set()
+            self._th.join(timeout=5)
+            print(f"[녹화] 저장 {self.path} ({self.n / self.fps:.0f}s)")
+
+
 def dataset_is_single(dataset: Path) -> bool:
     """한 팔(so101_follower) 데이터셋인지: observation.state 이름이 "{motor}.pos" 6개."""
     from backends import MOTORS
@@ -582,6 +649,8 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
         # 세우기 뒤 최대 1s: 팔이 마지막 목표를 따라올 때까지 같은 목표 유지 (관측이 아직 기울어 있으면
         # 되감기가 세우기를 한 번 더 한다)
         hold = [plan[n_untilt - 1]] * FPS if n_untilt else []
+        pre_pause = prev_sent  # "계속" 때 이 자세(정지 직전 명령)로 다시 기울여 넘긴다
+        untilt_sent: list[np.ndarray] = []
         for i, target in enumerate(list(plan[:n_untilt]) + hold):
             if (
                 i >= n_untilt
@@ -597,6 +666,7 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                 sent = np.array([out[k] for k in JOINT_KEYS], dtype=np.float32)
             path.append(state)
             sent_path.append(sent)
+            untilt_sent.append(sent)
             prev_sent = sent
             row = dict(step=-1, t=t, event="pause_untilt")
             row.update({f"obs_{i}": float(v) for i, v in enumerate(state)})
@@ -629,7 +699,7 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
             waited = time.perf_counter() - tw
             if "q" in k or "Q" in k:
                 choice = "quit"
-            elif any(c in k for c in " rRsS") or (heard and heard[0] == "back"):
+            elif any(c in k for c in " rRsS") or (heard and heard[0] in ("back", "home")):
                 choice = "back"
             elif "c" in k or "C" in k or (heard and heard[0] in ("resume", "pour")):
                 choice = "resume"
@@ -642,9 +712,35 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
         print(f"[일시정지] → {choice} ({time.perf_counter() - t0:.1f}s 멈춤)")
         ev(f"pause:{choice}", t)
         if choice == "resume":
-            policy.reset()  # 멈추기 전 행동 묶음을 버리고 지금 장면에서 새로 계산
-            if det.state == POURING:  # 세워서 기울기가 돌아온 걸 '다 따름'으로 보지 않게
+            # 세웠던 물통을 정지 직전 자세로 되돌린 뒤 정책에 넘긴다. 세운 자세(붓는 위치에서 물통만 선 장면)는
+            # 시연에 없어서, 그대로 넘기면 정책이 다시 안 붓고 헤매거나 36s 동안 계속 기울였다 (실제 양팔 10/10).
+            say("resume", t)
+            if untilt_sent:
+                for target in list(reversed(untilt_sent))[1:] + [pre_pause]:
+                    lt = time.perf_counter()
+                    _, state = read_state()
+                    sent = clamp_step(target, prev_sent, args.max_step_deg, args.max_step_gripper)
+                    out = robot.send_action({k: float(v) for k, v in zip(JOINT_KEYS, sent)})
+                    if isinstance(out, dict) and all(k in out for k in JOINT_KEYS):
+                        sent = np.array([out[k] for k in JOINT_KEYS], dtype=np.float32)
+                    path.append(state)
+                    sent_path.append(sent)
+                    prev_sent = sent
+                    row = dict(step=-1, t=t, event="resume_retilt")
+                    row.update({f"obs_{i}": float(v) for i, v in enumerate(state)})
+                    row.update({f"cmd_{i}": float(v) for i, v in enumerate(sent)})
+                    rows.append(row)
+                    if not args.fast:
+                        dt = time.perf_counter() - lt
+                        if dt < 1 / FPS:
+                            precise_sleep(1 / FPS - dt)
+            elif det.state == POURING:  # 세우지 않았는데 POURING 이면 '다 따름' 오판 방지
                 det.state, det._cnt = READY, 0
+            # 물통을 정지 직전 자세로 되돌렸으면 정책의 남은 행동 묶음(ACT 큐)을 그대로 이어서 실행한다.
+            # reset 하면 다시 기울인 장면만 보고 새로 계산해 1~2s 만에 세워 버렸다 (실제 10k·90k: 붓기 3~5s).
+            # 되돌리지 않은 경우(기울지 않았을 때 정지)는 지금 장면에서 새로 계산.
+            if not untilt_sent and not isinstance(policy, DemoPolicy):
+                policy.reset()
             if not args.fast:  # 시간 초과(--timeout-s)는 멈춰 있던 시간을 빼고 센다
                 t_start += time.perf_counter() - t0
         return choice
@@ -694,7 +790,6 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                     choice = pause(t, keys)
                     if choice == "resume":
                         stop_reason = None
-                        evs.append(say("resume", t))
                         continue
                     if choice == "quit":
                         stop_reason, quit_req = "quit", True
@@ -788,10 +883,24 @@ def run_pour(args, robot, policy, tts, det_cfg, run_dir: Path, run_idx: int, voi
                     stop_reason = "settled"
                     evs.append(say("placed", t))  # 정리(컵 내려놓기·복귀)까지 끝남
                 elif done_t is None and left_home and home_n >= args.settle_s * FPS:
-                    stop_reason = "no_pour"  # 이미 시작 자세 → 되감기 안 함
-                    evs.append(say("stopped", t))
+                    if det.tilt_step is not None:
+                        # 붓다가 정지 → "계속" 뒤 정책이 다시 기울이지 않고 내려놓고 돌아온 경우: 이미 부었으니 정상 종료
+                        # (양팔 시뮬: 거의 다 부은 25s 에 정지 → 계속 → 다시 안 붓고 복귀)
+                        stop_reason = "settled"
+                        evs.append(say("placed", t))
+                    else:
+                        stop_reason = "no_pour"  # 이미 시작 자세 → 되감기 안 함
+                        evs.append(say("stopped", t))
                 elif done_t is not None and t - done_t >= args.post_done_s:
                     stop_reason = "done"
+                elif (
+                    det.state == POURING
+                    and det.tilt_step is not None
+                    and (det.step - det.tilt_step) / FPS > args.max_pour_s
+                ):
+                    # 시연 붓기는 12~21s. 정책이 기울인 채 멈추지 않으면 (실제: '계속' 뒤 36s) 멈추고 되감는다
+                    evs.append(say("timeout", t))
+                    stop_reason = "pour_timeout"
                 elif done_t is None and t >= args.timeout_s:
                     evs.append(say("timeout", t))
                     stop_reason = "timeout"
@@ -936,7 +1045,13 @@ def make_robot(args):
         return DatasetReplayRobot(args.episode, Path(args.dataset), clock=clock)
     if args.backend == "replay+mujoco":
         return ReplayMujocoRobot(
-            args.episode, Path(args.dataset), clock=clock, render=args.sim_render, video_path=args.sim_video
+            args.episode,
+            Path(args.dataset),
+            clock=clock,
+            render=args.sim_render,
+            video_path=args.sim_video,
+            spacing=args.sim_spacing,
+            yaw_deg=args.sim_yaw,
         )
     if args.backend == "single":
         if not (args.top_cam and args.wrist_cam):
@@ -984,6 +1099,15 @@ def parse_args(argv=None):
         "--fast", action="store_true", help="잠 안 자고 최대 속도 (시간 = step/30, replay 전용 측정용)"
     )
     g.add_argument("--sim-render", choices=["none", "window", "offscreen"], default="none")
+    g.add_argument(
+        "--sim-spacing",
+        type=float,
+        default=0.45,
+        help="시뮬 두 팔 받침 사이 거리(m). 기본 0.45 = 9/20 데이터 추정. 10/9 리그 탑 카메라 기준 추정 ≈0.32",
+    )
+    g.add_argument(
+        "--sim-yaw", type=float, default=30.0, help="시뮬 두 팔을 안쪽으로 돌린 각도(°). 10/9 리그 추정 ≈0"
+    )
     g.add_argument("--sim-video", default=None, help="replay+mujoco 영상 저장 경로 (offscreen)")
     g = ap.add_argument_group("real 로봇")
     g.add_argument(
@@ -1081,6 +1205,12 @@ def parse_args(argv=None):
         help="DONE 전 정지 때: ask = 세운 뒤 멈춰서 '돌아가'(되감기)/'계속 해줘'(이어서) 기다림, "
         "rewind = 바로 되감기, freeze = 그 자리에서 멈춤",
     )
+    g.add_argument(
+        "--max-pour-s",
+        type=float,
+        default=30.0,
+        help="붓기(POURING)가 이 시간을 넘으면 정지·되감기 (대회 데이터 붓기 12~21s, 멈춘 시간은 빼고 셈)",
+    )
     g.add_argument("--pause-s", type=float, default=20.0, help="ask: 이 시간 동안 아무 말 없으면 되감기 복귀")
     g.add_argument(
         "--pause-say-s",
@@ -1133,6 +1263,11 @@ def parse_args(argv=None):
     g.add_argument("--test-stop-at", type=float, default=None, help="시험용: 이 시각(s)에 정지 키 입력 흉내")
     g.add_argument("--out", default=str(OUTPUTS / "rollout"))
     g.add_argument("--tag", default="")
+    g.add_argument(
+        "--record-top",
+        action="store_true",
+        help="실제 로봇: 탑 카메라 영상을 결과 폴더에 top_view.mp4 로 저장 (발표용)",
+    )
     return ap.parse_args(argv)
 
 
@@ -1208,6 +1343,7 @@ def main(argv=None):
         if not voice_stop.start():
             voice_stop.close()
             voice_stop = None
+    recorder = None
     session = dict(
         args=vars(args),
         thresholds=th,
@@ -1227,6 +1363,9 @@ def main(argv=None):
     try:
         print(f"[로봇] {args.backend} 연결 ...")
         robot.connect()
+        if args.record_top:
+            recorder = TopRecorder(robot, run_dir / "top_view.mp4")
+            recorder.start()
         run_idx, announce = 0, True
         if args.stt_mode == "stream" and hasattr(commander, "listen_stream"):
 
@@ -1254,7 +1393,17 @@ def main(argv=None):
                     dict(t=time.time(), text=r.text, command=r.command, source=r.source, stt_s=r.stt_s)
                 )
                 if r.command == "quit":
+                    if r.source == "voice":  # "끝내줘" → 안내 후 종료 (초기 자세 복귀는 종료 처리에서)
+                        tts.say("bye")
+                        tts.wait(timeout=6.0)
                     break
+                if r.command == "home":  # "초기자세로" → 프로그램 시작 때 자세로 3s 보간 (실제 팔만)
+                    tts.say("home")
+                    if hasattr(robot, "return_to_initial") and robot.is_connected:
+                        robot.return_to_initial()
+                    tts.wait(timeout=8.0)
+                    announce = True
+                    continue
                 if r.command != "pour":
                     # 자동 감지는 소음에도 켜질 수 있어, 받아쓴 말이 있을 때만 다시 말해 달라고 한다
                     if r.command is None and (args.stt_mode == "enter" or (r.text or "").strip()):
@@ -1282,6 +1431,8 @@ def main(argv=None):
                 robot.return_to_initial()
         except Exception as e:
             print(f"[로봇] 복귀 실패: {e}")
+        if recorder is not None:  # 초기 자세 복귀까지 담은 뒤, 카메라가 닫히기 전에 끝낸다
+            recorder.stop()
         try:
             robot.disconnect()
         except Exception as e:

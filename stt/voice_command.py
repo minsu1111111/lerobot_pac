@@ -84,7 +84,8 @@ OUT_DIR = default_out_dir()
 # 명령어 사전. 공백·문장부호를 지운 텍스트에서 부분 문자열로 찾는다.
 # --------------------------------------------------------------------------- #
 POUR, STOP, QUIT = "pour", "stop", "quit"
-BACK, RESUME = "back", "resume"  # 붓는 중 정지한 뒤: 되감아 돌아가기 / 이어서 하기
+BACK, RESUME = "back", "resume"
+HOME = "home"  # 대기 중 "초기자세로" → 팔을 프로그램 시작 때 자세로  # 붓는 중 정지한 뒤: 되감아 돌아가기 / 이어서 하기
 
 # 팀이 정한 기본 명령: "따라줘" / "정지". 나머지는 인식 실패 대비 동의어.
 COMMANDS: dict[str, list[str]] = {
@@ -109,16 +110,26 @@ COMMANDS: dict[str, list[str]] = {
         "stop",
         "멈출",
         "잠깐",
-        "잠시",
         "기다려",
         "지마",
         "지말",
-        # 뜻이 같은 말 (붓는 중 "됐어"/"충분해" = 그만, "안 돼"/"위험해" = 멈춰). 오탐해도 멈출 뿐.
-        "됐어",
-        "충분",
-        "안돼",
-        "안되",
-        "위험",
+        # "됐어/충분/안돼/잠시/위험"은 대회장 대화에서 너무 자주 나와 붓는 중 오정지가 많아 뺐다 (10/10 실측).
+    ],
+    # 대기 중 "끝내줘" → 프로그램 종료 (연속 2번 들려야). "끝내준다"(칭찬)는 제외어로 뺀다.
+    QUIT: ["끝내줘", "끝내자", "끝내", "종료", "프로그램꺼", "그만하자"],
+    # 대기 중 "초기자세로" → 처음 자세로 복귀 (일시정지 중이면 "돌아가"와 같게 처리)
+    HOME: [
+        "초기자세",
+        "처음자세",
+        "기본자세",
+        "원래자세",
+        "초기상태",
+        "처음상태",
+        "기본상태",
+        "원래상태",
+        "초기화",
+        "홈으로",
+        "원점",
     ],
     # 정지 뒤 "돌아가" → 되감기 복귀 (rollout 일시정지에서만 쓰고, 대기 중엔 무시)
     BACK: [
@@ -163,13 +174,36 @@ COMMANDS: dict[str, list[str]] = {
 }
 # 매칭 전에 지우는 표현 (다른 뜻의 "따라"/"따르").
 COMMAND_EXCLUDE: dict[str, list[str]] = {
+    QUIT: ["끝내준", "끝내주", "끝내줬"],
     STOP: ["스토리", "스토어", "스토브", "스토킹"],
-    POUR: ["따라와", "따라가", "따라온", "따라간", "따라서", "따라해", "따라하", "따라잡", "따르면", "따른"],
+    # "물 따르는 건 잘해"처럼 설명하는 말(대회장 옆 대화에서 실제로 시작이 걸림)은 시작으로 치지 않는다
+    POUR: [
+        "따라와",
+        "따라가",
+        "따라온",
+        "따라간",
+        "따라서",
+        "따라해",
+        "따라하",
+        "따라잡",
+        "따르면",
+        "따른",
+        "따르는",
+        "따랐",
+        "따르고",
+        "따르다",
+        "따르기",
+        "따라다",
+    ],
 }
 # 둘 다 나오면 앞쪽이 이긴다 (안전: stop 우선).
-COMMAND_PRIORITY: tuple[str, ...] = (STOP, BACK, POUR, RESUME)
+COMMAND_PRIORITY: tuple[str, ...] = (QUIT, STOP, HOME, BACK, POUR, RESUME)
+# 명령은 짧게 말한다. 받아쓴 문장(공백·문장부호 제외)이 이보다 길면 대화 속 단어로 보고 무시한다.
+# 대회장 실측: "여기 뭐예요 여기 따라줘", "물 좀 채워주도록 하겠습니다", "이렇게 하지 못하는 사람을 멈춰 이렇게" 가 명령으로 걸림.
+# 정지는 다급하게 길게 말할 수 있어 여유를 둔다 ("어 저거 물 쏟아진다 멈춰" = 13자).
+COMMAND_MAX_LEN: dict[str, int] = {STOP: 16, QUIT: 8, POUR: 9, HOME: 10, BACK: 10, RESUME: 10}
 # 붓는 중 정지한 뒤(일시정지)에는 "그만 돌아가" 처럼 정지어가 섞여도 고르는 말이 이긴다 (이미 멈춰 있음).
-PAUSE_PRIORITY: tuple[str, ...] = (BACK, POUR, RESUME, STOP)
+PAUSE_PRIORITY: tuple[str, ...] = (HOME, BACK, POUR, RESUME, STOP)
 
 # "물" + 요청 표현 조합도 pour ("물 좀 줘", "물 한 잔 주세요", "물 마시고 싶어").
 # 선물/동물/물건/물어봐 같은 단어의 "물"은 제외한다.
@@ -185,7 +219,7 @@ INITIAL_PROMPT = "물 따라줘. 정지."
 SAMPLE_LEN = 48
 
 # Enter 모드 키보드 대체 입력. 한글 자판 상태에서 친 경우(ㅔ/ㄴ/ㅂ)도 받는다.
-KEY_COMMANDS: dict[str, str] = {"p": POUR, "ㅔ": POUR, "s": STOP, "ㄴ": STOP}
+KEY_COMMANDS: dict[str, str] = {"p": POUR, "ㅔ": POUR, "s": STOP, "ㄴ": STOP, "h": HOME, "ㅗ": HOME}
 QUIT_KEYS = {"q", "ㅂ", "quit", "exit"}
 KEY_HINT = "키보드로 대신 입력: p+Enter = 따라줘, s+Enter = 정지, q+Enter = 종료"
 
@@ -244,8 +278,10 @@ def match_command(
     commands: dict[str, list[str]] = COMMANDS,
     exclude: dict[str, list[str]] = COMMAND_EXCLUDE,
     priority: tuple[str, ...] = COMMAND_PRIORITY,
+    max_len: dict[str, int] | None = COMMAND_MAX_LEN,
 ) -> str | None:
     """텍스트에서 명령을 찾는다 (순수 함수). 여러 개면 priority 순서(stop 우선).
+    max_len: 명령별 최대 글자 수(공백·문장부호 뺀). 넘으면 대화로 보고 무시 (기본 COMMAND_MAX_LEN).
 
     예) "물 따라줘" -> "pour", "그만 따라" -> "stop", "나를 따라와" -> None
     """
@@ -254,6 +290,8 @@ def match_command(
         t = norm
         for ex in exclude.get(cmd, []):
             t = t.replace(ex, "")
+        if max_len and len(norm) > max_len.get(cmd, 99):  # 긴 문장 = 대화 속 단어 → 명령 아님
+            continue
         if any(k.lower() in t for k in commands[cmd]):
             return cmd
         if cmd == POUR and WATER_RE.search(t) and WATER_REQUEST_RE.search(t):
@@ -1053,7 +1091,7 @@ class VoiceCommander:
         if getattr(self, "_stream_vad", None) is None:
             self._stream_vad = import_webrtcvad().Vad(vad_level)
         log(f'\n[대기] 말씀하세요 ("물 따라줘")  |  {KEY_HINT}')
-        kb_alive, hits = True, 0
+        kb_alive, hits, last_cmd = True, 0, None
         with StreamWindows(self.mic, self._stream_vad, self.frame_ms, window_s, hop_s) as sw:
             while True:
                 if kb_alive and line_ready(self.stdin, 0.02):
@@ -1080,8 +1118,14 @@ class VoiceCommander:
                 cmd = match_command(text)
                 if text:
                     log(f'[듣는 중] "{text}" -> {cmd} ({stt_s:.2f}s)')
-                hits = hits + 1 if cmd == POUR else 0
-                if cmd == STOP or (cmd == POUR and hits >= pour_hits):
+                # 로봇을 움직이는 명령(시작·초기자세)은 같은 명령이 연속 pour_hits 번 들려야 반환
+                hits = (
+                    hits + 1
+                    if cmd in (POUR, HOME, QUIT) and cmd == last_cmd
+                    else (1 if cmd in (POUR, HOME, QUIT) else 0)
+                )
+                last_cmd = cmd
+                if cmd == STOP or (cmd in (POUR, HOME, QUIT) and hits >= pour_hits):
                     log(f"[명령] {cmd}")
                     return CommandResult(text, cmd, "voice", window_s, stt_s)
 

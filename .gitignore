@@ -16,3 +16,4 @@ robot.env
 
 # 대회 내부 문서 (숙소·기차표 등 개인 정보, 깃에 올리지 않음)
 pac_docs/
+MUJOCO_LOG.TXT

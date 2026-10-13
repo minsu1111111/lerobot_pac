@@ -12,11 +12,40 @@
 > An ACT policy trained from teleoperated demos drives both arms; around it we built Whisper voice commands
 > (start, and stop while pouring), a joint-state completion detector (hysteresis on the pouring wrist, 100/100 on the
 > dataset), non-blocking offline TTS, a stop routine that uprights the bottle and replays the executed path backwards,
-> a MuJoCo bimanual digital twin for hardware-free testing, and an offline-ready launcher. 85 unit tests, CI.
+> a MuJoCo bimanual digital twin for hardware-free testing, and an offline-ready launcher. Deployed at the
+> PAC 2026 venue with 100 newly collected demos and a model trained on site (see results below).
 
 <p align="center">
-  <img src="docs/media/demo_sim.gif" width="560" alt="시뮬 데모: 음성 명령 → 물 따르기 → 완료 감지 → TTS">
-  <br><sub>시뮬 데모 (카메라 = 녹화된 시연 영상, 팔 = MuJoCo). 소리 포함 영상: <a href="docs/media/demo_sim.mp4">demo_sim.mp4</a></sub>
+  <img src="docs/media/pac2026_full_pour_3x.gif" width="420" alt="대회장 실제 로봇 탑뷰: 컵·물통 잡기 → 붓기 → 내려놓기 (3배속)">
+  <br><sub>PAC 2026 대회장, 실제 양팔 로봇 탑 카메라 (3배속). 원본 52초: <a href="docs/media/pac2026_full_pour_topview.mp4">pac2026_full_pour_topview.mp4</a>
+  · 붓는 중 정지 → 되감기: <a href="docs/media/pac2026_stop_rewind_topview.mp4">pac2026_stop_rewind_topview.mp4</a></sub>
+</p>
+
+## 대회 결과 (PAC 2026 현장, 2026-10-09 ~ 10-10)
+
+대회장에서 새 그리퍼·손목 카메라·캘리브레이션으로 **시연을 다시 모으고(100개) 학습해** 실제 양팔로 시연했다.
+
+| 항목 | 내용 |
+|---|---|
+| 데이터 | [`UNITAmanipulation/bi_pour_pac2026`](https://huggingface.co/datasets/UNITAmanipulation/bi_pour_pac2026) — 100 에피소드, 121,137 프레임 (33~53 s), 카메라 3대, 리더 2대로 텔레옵 |
+| 모델 | [`UNITAmanipulation/act_bi_pour_pac2026`](https://huggingface.co/UNITAmanipulation/act_bi_pour_pac2026) — ACT, batch 16, 10만 스텝 (RTX 5060 약 5.5 h), 1만 스텝마다 체크포인트 HF 자동 업로드. 이어 학습판 `act_pour_water_ft_1009_1430` (5만 스텝) 도 비교 |
+| 완료 감지 | 대회 데이터 100개로 기준값 재계산 (기울기 80.2° / 복귀 40.1°, 시간초과 53 s) → **100/100 감지** ([그래프](docs/media/pac2026_wrist_roll_100eps.png)) |
+| 체크포인트 선택 | 학습 중 올라오는 체크포인트를 노트북이 받아 시뮬로 먼저 검증 → 40k 이후 시연 대비 잡기·놓기 위치 차이 1 cm 이하로 수렴, 실제 팔은 80k 사용 |
+| 실제 롤아웃 (28 세션, 붓기 56회) | 정지 → '계속' 은 이어서 붓고 완료, 정지 → '돌아가' 는 원래 자리 복귀. 붓기 시작 감지 누락 없음 |
+| 현장에서 고친 것 | 아래 표 |
+
+| 현장 문제 (실측) | 고친 방법 |
+|---|---|
+| 정지 → 계속 하면 다시 안 붓고 헤매거나 36 s 동안 기울인 채 멈춤 | 계속 때 물통을 정지 직전 각도로 되돌리고, 정책의 남은 행동 묶음(ACT 큐)을 이어서 실행. 붓기 30 s 상한 |
+| 정지 → 계속 뒤 1~2 s 만에 세워 버림 (붓기 3~5 s) | 위와 같음 → 시뮬에서 붓기 13~15 s 로 정상 |
+| 팔을 다른 자세에서 시작하면 '컵을 놓았습니다' 가 안 나옴 | 정착 판정에 시연 쉬는 자세(start_pose)도 사용, 허용 범위 30° |
+| 대회장 대화("물 따르는 건 잘해", "다 됐어")로 시작·정지 | 짧게 말한 명령만 인정(받아쓴 글자 수 제한), 대화에 흔한 정지 동의어 제거 |
+| 같은 모델 카메라 2대 번호가 뒤바뀜 | USB 포트 경로(`/dev/v4l/by-path`)로 고정 |
+| 탑 카메라 시점이 녹화 뒤 6 px 밀림 | 정렬 측정 도구로 확인, 탑 영상을 같은 만큼 틀어 시뮬로 비교 → 잡기·놓기 위치 차이 없음 |
+
+<p align="center">
+  <img src="docs/media/demo_sim.gif" width="480" alt="시뮬 데모: 음성 명령 → 물 따르기 → 완료 감지 → TTS">
+  <br><sub>대회 전 시뮬 데모 (카메라 = 녹화된 시연 영상, 팔 = MuJoCo). 소리 포함 영상: <a href="docs/media/demo_sim.mp4">demo_sim.mp4</a></sub>
 </p>
 
 ## 데모 시나리오
@@ -26,10 +55,14 @@
 | 1 | | "준비됐습니다. 말씀해 주세요." |
 | 2 | **"물 따라줘"** | "물을 따르겠습니다." → 왼팔 컵 잡기, 오른팔 물통 잡기 |
 | 3 | | 붓기 → 손목 각도로 완료 감지 → **"목표량까지 따랐습니다."** |
-| 4 | | 컵을 지정 위치에 내려놓고 복귀 → **"컵을 놓았습니다. 맛있게 드세요."** → 다시 1 |
+| 4 | | 컵을 지정 위치에 내려놓고 복귀 → **"컵을 놓았습니다."** → 다시 1 |
 | 정지 | 붓는 중 **"정지" / "멈춰" / "그만"** 또는 Space | 물통 먼저 세우고 → "정지했습니다." → **멈춰서 "돌아가" / "계속 해줘" 기다림** |
 | 돌아가기 | 멈춘 상태에서 **"돌아가"** (Space·r) 또는 20초 동안 말 없음 | **지나온 길을 거꾸로 되돌아가 컵·물통을 제자리에** → "원래 자리로 돌아왔습니다." |
-| 계속 | 멈춘 상태에서 **"계속 해줘"** / "이어서" / "따라줘" (c) | "이어서 따르겠습니다." → 정책이 지금 자세에서 다시 이어 붓기 |
+| 계속 | 멈춘 상태에서 **"계속 해줘"** / "이어서" / "마저 해줘" (c) | "이어서 따르겠습니다." → 물통을 정지 직전 각도로 되돌리고 이어 붓기 |
+| 초기 자세 | 대기 중 **"초기자세로"** / "처음 상태로" (h) | "초기 자세로 돌아가겠습니다." → 프로그램 시작 때 자세로 |
+| 종료 | 대기 중 **"끝내줘"** / "종료" (q) | "종료하겠습니다." → 초기 자세 복귀 후 종료 |
+
+명령은 짧게 한마디로 말한다. 대회장 대화가 명령으로 잡히지 않도록 받아쓴 문장이 길면 무시한다 (`stt/voice_command.py` `COMMAND_MAX_LEN`).
 
 물 양은 **물통에 목표량만 담아 두고 끝까지 따르는 방식**으로 맞춘다 (투명한 물은 카메라로 수위를 안정적으로 볼 수 없음).
 
@@ -83,6 +116,8 @@ bash run_demo.sh --sim --sim-render window    # 하드웨어 없이: 녹화 영�
 bash run_demo.sh --replay                     # 하드웨어 없이: 녹화 데이터 그대로 재생
 bash run_demo.sh --sim --policy <체크포인트 폴더> --dataset <데이터 폴더>   # 새 모델·새 데이터로
 bash run_demo.sh --single --policy <한 팔 체크포인트> --thresholds <한 팔 임계값.json>   # 팔 한 대 리허설 (robot.env 의 SINGLE_*)
+bash run_demo.sh --record-top --policy <체크포인트>   # 실제 로봇 탑 카메라 영상을 결과 폴더 top_view.mp4 로 저장 (q 로 끝낼 것)
+bash run_demo.sh --sim --sim-spacing 0.32 --sim-yaw 0 ...   # 시뮬 팔 배치를 대회장 리그에 맞춤 (화면만, 판단 영향 없음)
 ```
 
 | 조작 | 대기 중 | 붓는 중 | 되감는 중 |
@@ -260,19 +295,19 @@ Tailscale 로 데스크탑에서 직접 가져오는 방법은 [`train/fetch_che
 
 - 데이터셋 [`UNITAmanipulation/bi_so101_pour_water_20260920_194823`](https://huggingface.co/datasets/UNITAmanipulation/bi_so101_pour_water_20260920_194823) — 100 에피소드, 117,619 프레임, 30 fps, 카메라 3대(top 640×480, 손목 320×240), 상태·행동 12차원 (물통을 다 비우는 방식)
 - 모델 [`UNITAmanipulation/act_pour_water_100`](https://huggingface.co/UNITAmanipulation/act_pour_water_100) — ACT (ResNet18, chunk 100), 10만 스텝. 실제 로봇 성공률 약 90%
+- (대회) 데이터 [`UNITAmanipulation/bi_pour_pac2026`](https://huggingface.co/datasets/UNITAmanipulation/bi_pour_pac2026), 모델 [`UNITAmanipulation/act_bi_pour_pac2026`](https://huggingface.co/UNITAmanipulation/act_bi_pour_pac2026) — 위 [대회 결과](#대회-결과-pac-2026-현장-2026-10-09--10-10)
+- 캘리브레이션: 대회 때 쓴 팔 4대 파일은 [`calibration/`](calibration/) (follower1·2, leader1·2). `~/.cache/huggingface/lerobot/calibration/robots/so_follower/` (팔로워), `.../teleoperators/so_leader/` (리더) 에 넣고, 양팔 실행은 `bimanual_left/right.json`, `bimanual_leader_left/right.json` 이름으로 복사해 쓴다. 팔로워 그리퍼는 `drive_mode: 1` (재캘리하면 0 으로 돌아가니 다시 1 로).
 
-## 현재 상태 (2026-10-06)
+## 현재 상태 (2026-10-10, 대회 후)
 
 | 항목 | 상태 |
 |---|---|
-| 기존 모델로 실제 양팔 롤아웃 | 확인 (이번 변경 전 코드) |
-| 손목 각도 완료 감지 | 데이터 100/100, follower1 실제 팔로 확인 |
-| 음성 시작·정지, 안내 음성 | 롤아웃 전체("물 따라줘" → 붓기 → "멈춰" → 되감기)를 스피커→마이크로 조용함·잡음 모두 확인, 본인 목소리 "멈춰"·"물 따라줘" 확인. **현장 소음에서는 미확인** |
-| 정지 → 물통 세우기 → 되감기 | 시뮬 + **실제 follower1 한 팔**(음성 정지 포함)로 확인. 양팔·물로는 대회장에서 처음 (첫 시험 항목) |
-| 정상 종료 판단 (정리 후 멈춤) | 기존 모델 시뮬로 확인. 새 모델·실제 로봇은 미확인 |
-| 연결 시 튐 방지 (목표=현재 위치 후 토크 켬) | follower1 시험 스크립트로 같은 절차 확인. 롤아웃 양팔·한 팔 백엔드 실물은 미확인 |
-| 한 팔 리허설 모드 (`--single`) | 학습 안 된 한 팔 정책 + MuJoCo 가짜 팔로 경로 확인 (복귀 오차 0.2°). 실물·학습된 모델은 미확인 |
-| 새 그리퍼·마운트로 수집·학습 | 대회장에서 |
+| 대회 데이터로 학습한 모델, 실제 양팔 롤아웃 | 대회장에서 시연 (컵·물통 잡기 → 붓기 → 완료 감지 → 내려놓기) |
+| 손목 각도 완료 감지 | 대회 데이터 100/100, 실제 롤아웃에서 시작한 붓기 모두 감지 |
+| 정지 → 세우기 → 돌아가 / 계속 | 실제 양팔에서 동작 (돌아가 = 원래 자리 복귀, 계속 = 이어서 붓고 완료) |
+| 음성 명령 | 현장 소음에서 동작. 대화 오인식은 글자 수 제한으로 줄임 (현장 기록 재판정: 오인식 12건 → 0, 진짜 명령 유지) |
+| 물이 컵 옆으로 새는 경우 | 팔 위치는 시연과 1 cm 내로 같음 → 물통을 잡는 위치·물 양 차이가 원인으로 추정. 녹화 때와 같은 물통·자리로 맞춰 시연 |
+| 남은 과제 | 물 양을 카메라로 판단(현재는 정해진 양을 다 따름), 컵 위치 다양화 데이터 확장, 헤드셋 마이크 |
 
 - 모델 검증 100개는 학습에 쓴 데이터라 일반화 성능이 아니라 파이프라인 확인이다.
 - 시뮬에는 액체가 없고 컵·물통은 단순 모형이며, 정책 입력 영상은 녹화본이라 로봇 움직임에 반응하지 않는다.
